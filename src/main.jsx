@@ -113,7 +113,7 @@ function App() {
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
-    link.download = `ebay-feedback-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.download = csvFilename(result);
     link.click();
     URL.revokeObjectURL(link.href);
   }
@@ -317,6 +317,29 @@ function toCsv(rows) {
     return /[",\n\r]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
   };
   return [columns.join(','), ...rows.map((row) => columns.map((column) => escape(row[column])).join(','))].join('\n');
+}
+
+function csvFilename(result) {
+  const date = new Date().toISOString().slice(0, 10);
+  const firstListing = result?.listings?.[0] ?? {};
+  const firstRow = result?.rows?.[0] ?? {};
+  const isListing = result?.mode === 'listing' || Boolean(firstListing.itemId);
+  const label = isListing
+    ? firstListing.title || firstListing.itemId || firstRow.source_item_title || firstRow.source_item_id
+    : firstListing.sellerUsername || firstRow.seller_username || 'seller-feedback';
+
+  return `ebay-feedback-${slugForFilename(label)}-${date}.csv`;
+}
+
+function slugForFilename(value = '') {
+  const slug = String(value)
+    .replace(/\| eBay.*/i, '')
+    .replace(/[^a-z0-9]+/gi, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80)
+    .toLowerCase();
+
+  return slug || 'export';
 }
 
 function createChiptuneLoop() {

@@ -35,6 +35,11 @@ export async function scrapeEbayFeedback({
 
     const rows = [];
     for (const listing of listings) {
+      if (listing.embeddedFeedbackRows?.length) {
+        rows.push(...listing.embeddedFeedbackRows);
+        if (inferredMode === 'listing') continue;
+      }
+
       if (!listing.sellerUsername) {
         warnings.push(`Skipped ${listing.url}: seller username was not visible.`);
         continue;
@@ -139,30 +144,37 @@ async function readListingDetails(page, listingUrl, options) {
     options.warnings.push(`Could not find seller username for ${listingUrl}.`);
   }
 
-  return {
+  const listing = {
     url: listingUrl,
     itemId,
     title,
     sellerUsername,
     feedbackUrl: sellerUsername ? feedbackProfileUrl(sellerUsername) : null
   };
+  listing.embeddedFeedbackRows = parseListingPageFeedbackRows(html, listing);
+  return listing;
 }
 
 async function scrapeSellerFeedback(page, listing, maxPages, options) {
   const rows = [];
-  let url = listing.feedbackUrl;
+  const seenPageKeys = new Set();
 
-  for (let pageNumber = 1; url && pageNumber <= maxPages; pageNumber += 1) {
+  for (let pageNumber = 1; pageNumber <= maxPages; pageNumber += 1) {
+    const url = feedbackPageUrl(listing.feedbackUrl, pageNumber);
     await goto(page, url, options);
     let html = await readStableContent(page);
     html = await handleEbayErrorPage(page, html, url, options);
     const pageRows = parseFeedbackRows(html, listing);
+    const pageKey = pageRows.map((row) => row.feedback_id || row.feedback_text).join('|');
+    if (!pageRows.length || seenPageKeys.has(pageKey)) break;
+    seenPageKeys.add(pageKey);
     rows.push(...pageRows);
 
     const exactRows = pageRows.filter((row) => row.match_type !== 'seller-profile');
     if (exactRows.length > 0 && exactRows.length === pageRows.length) break;
 
-    url = findNextPageUrl(html, url);
+    const totalPages = extractFeedbackTotalPages(html);
+    if (totalPages && pageNumber >= totalPages) break;
   }
 
   if (rows.length === 0) {
@@ -222,6 +234,58 @@ function parseFeedbackRows(html, listing) {
   });
 
   return rows.length > 0 ? rows : parseFallbackFeedback(html, listing);
+}
+
+function parseListingPageFeedbackRows(html, listing) {
+  const $ = cheerio.load(html);
+  const rows = [];
+
+  for (const row of parseFeedbackTableRows($, listing)) {
+    if (row.match_type !== 'seller-profile') rows.push({ ...row, match_type: 'listing-page' });
+  }
+
+  const cardSelectors = [
+    '.card__feedback',
+    '[data-testid*="feedback"]',
+    '[class*="review"]'
+  ].join(',');
+
+  $(cardSelectors).each((_index, element) => {
+    const container = $(element).closest('li, article, tr, [class*="card"], [class*="feedback"]');
+    const rowText = cleanText((container.length ? container : $(element)).text());
+    const comment = cleanText(
+      $(element).find('[aria-label]').first().attr('aria-label') ||
+        $(element).find('[class*="comment"]').first().text() ||
+        $(element).text()
+    );
+    const itemId = extractItemId(rowText) || listing.itemId || '';
+
+    if (!comment || isPageChrome(rowText) || isPageChrome(comment) || isFeedbackLeftForSeller(rowText)) return;
+    if (!looksLikeFeedback(`${comment} ${rowText}`) && itemId !== listing.itemId) return;
+    if (/Seller feedback|This item|All items|See all feedback/i.test(comment) && comment.length < 80) return;
+
+    const matchType = listing.itemId && itemId === listing.itemId ? 'listing-page' : inferMatchType({ listing, itemId, rowText });
+    if (matchType === 'seller-profile' && !rowText.includes(listing.itemId)) return;
+
+    rows.push({
+      feedback_id: extractFeedbackId(rowText) || `listing-${listing.itemId || 'item'}-${rows.length + 1}`,
+      source_listing_url: listing.url,
+      source_item_id: listing.itemId || '',
+      source_item_title: listing.title || '',
+      seller_username: listing.sellerUsername || '',
+      feedback_profile_url: listing.feedbackUrl || '',
+      matched_item_id: itemId,
+      matched_item_title: listing.title || '',
+      matched_item_url: listing.url,
+      match_type: 'listing-page',
+      rating: normalizeRating(rowText),
+      buyer_username: cleanText(container.find('a[href*="/usr/"]').last().text()),
+      feedback_date: extractRelativeDate(rowText),
+      feedback_text: comment
+    });
+  });
+
+  return dedupeRows(rows).slice(0, 50);
 }
 
 function parseFeedbackTableRows($, listing) {
@@ -347,13 +411,40 @@ function findNextPageUrl(html, baseUrl) {
   return absoluteUrl(href, baseUrl);
 }
 
+function extractFeedbackTotalPages(html = '') {
+  const $ = cheerio.load(html);
+  const text = cleanText($('body').text());
+  const pageMatch = text.match(/\bPage\s+\d+\s+of\s+(\d+)\b/i);
+  if (pageMatch) return Number(pageMatch[1]);
+
+  const pageIds = $('[value*="page_id="], a[href*="page_id="]')
+    .toArray()
+    .map((element) => {
+      const value = $(element).attr('value') || $(element).attr('href') || '';
+      return Number(value.match(/[?&]page_id=(\d+)/i)?.[1]);
+    })
+    .filter(Number.isFinite);
+
+  return pageIds.length ? Math.max(...pageIds) : 0;
+}
+
 function feedbackProfileUrl(username) {
   const query = new URLSearchParams({
     filter: 'feedback_page:RECEIVED_AS_SELLER',
     limit: '200',
+    page_id: '1',
     sort: 'TIME'
   });
   return `https://feedback.ebay.com/fdbk/feedback_profile/${encodeURIComponent(username)}?${query}`;
+}
+
+function feedbackPageUrl(baseUrl, pageNumber) {
+  const url = new URL(baseUrl);
+  url.searchParams.set('filter', 'feedback_page:RECEIVED_AS_SELLER');
+  url.searchParams.set('limit', '200');
+  url.searchParams.set('page_id', String(pageNumber));
+  url.searchParams.set('sort', 'TIME');
+  return url.toString();
 }
 
 async function goto(page, url, options) {
@@ -513,6 +604,13 @@ function isPageChrome(text = '') {
 function throwIfEbayErrorPage(html = '', url = '') {
   if (!isEbayErrorPageHtml(html)) return;
 
+  const itemId = extractItemId(url);
+  if (itemId) {
+    throw new Error(
+      `eBay returned an error page for item ${itemId}, so the scraper could not read the seller from that listing. If the listing opens for you in a normal browser, paste the seller profile URL instead, for example https://www.ebay.com/usr/SELLERNAME.`
+    );
+  }
+
   throw new Error(
     `eBay returned an error page for ${url}. Open the listing in a normal browser to confirm it is still available, then try the canonical item URL without tracking parameters.`
   );
@@ -523,6 +621,12 @@ async function handleEbayErrorPage(page, html = '', url = '', options = {}) {
 
   if (!options.allowManualVerification) {
     throwIfEbayErrorPage(html, url);
+  }
+
+  const refreshedHtml = await refreshEbayErrorPage(page, html);
+  if (!isEbayErrorPageHtml(refreshedHtml)) {
+    options.warnings.push('eBay returned a temporary error page; the scraper refreshed it and continued.');
+    return refreshedHtml;
   }
 
   console.log('eBay returned an error page in Chromium. Refresh or navigate to the working listing page; scraping will continue afterward.');
@@ -553,6 +657,17 @@ async function handleEbayErrorPage(page, html = '', url = '', options = {}) {
   }
 }
 
+async function refreshEbayErrorPage(page, fallbackHtml) {
+  try {
+    await page.reload({ waitUntil: 'domcontentloaded', timeout: 45000 });
+    await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => {});
+    await page.waitForTimeout(1000);
+    return await readStableContent(page);
+  } catch {
+    return fallbackHtml;
+  }
+}
+
 function isEbayErrorPageHtml(html = '') {
   const $ = cheerio.load(html);
   const title = cleanText($('title').first().text());
@@ -578,6 +693,22 @@ function normalizeScrapeError(error) {
 
 function extractDate(text) {
   return text.match(/\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2},?\s+\d{4}\b/i)?.[0] || '';
+}
+
+function extractRelativeDate(text = '') {
+  return (
+    extractDate(text) ||
+    cleanText(text).match(/\bPast\s+(?:month|6 months|year|\d+\s+(?:days?|weeks?|months?|years?))\b/i)?.[0] ||
+    ''
+  );
+}
+
+function extractFeedbackId(text = '') {
+  return (
+    String(text).match(/\bfeedback[_ -]?id["'=:\s]+(\d{8,})\b/i)?.[1] ||
+    String(text).match(/\bdata-feedback-id["'=:\s]+(\d{8,})\b/i)?.[1] ||
+    ''
+  );
 }
 
 function dedupeRows(rows) {
@@ -628,5 +759,8 @@ export const scraperInternals = {
   inferMode,
   throwIfEbayErrorPage,
   isEbayErrorPageHtml,
+  feedbackPageUrl,
+  extractFeedbackTotalPages,
+  parseListingPageFeedbackRows,
   normalizeScrapeError
 };
