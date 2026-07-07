@@ -3,10 +3,10 @@
 Product matching lives in `server/productCatalog.js` and uses:
 
 ```text
-data/ebay_titles_skus_in_display_order.csv
+data/Item_SKU_X_Ref.csv
 ```
 
-That file is intentionally ignored by Git because it can contain private SKU data. Use `data/ebay_titles_skus_in_display_order.example.csv` as the public template.
+That file is intentionally ignored by Git because it can contain private SKU data. Use `data/Item_SKU_X_Ref_example.csv` as the public template.
 
 The CSV is expected to contain:
 
@@ -42,7 +42,7 @@ jw-scorpion-freecom-001
 
 ## When To Update The Catalog
 
-Update `data/ebay_titles_skus_in_display_order.csv` when:
+Update `data/Item_SKU_X_Ref.csv` when:
 
 - a new eBay listing title should map to a Shopify product,
 - a SKU changes,

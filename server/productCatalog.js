@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, '..');
-const catalogPath = path.join(rootDir, 'data', 'ebay_titles_skus_in_display_order.csv');
+const catalogPath = path.join(rootDir, 'data', 'Item_SKU_X_Ref.csv');
 let cachedCatalog;
 let cachedCatalogStatus = {
   available: false,

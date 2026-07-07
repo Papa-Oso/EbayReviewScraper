@@ -33,12 +33,12 @@ Ignored local state:
 - `.env`
 - `data/feedback.sqlite`
 - `data/browser-profile/`
-- `data/ebay_titles_skus_in_display_order.csv`
+- `data/Item_SKU_X_Ref.csv`
 
 Tracked data:
 
-- `data/ebay_titles_skus_in_display_order.example.csv`
-- `data/direct_import_sample.csv`
+- `data/Item_SKU_X_Ref_example.csv`
+- `data/Judgeme_Reviews_direct_import_example.csv`
 
 ## Saved eBay Login
 

@@ -17,8 +17,8 @@ import {
 } from 'lucide-react';
 import './styles.css';
 
-// Shopify review import columns. Keep this list aligned with
-// data/direct_import_sample.csv and docs/CSV_EXPORT.md.
+// Judge.me review import columns. Keep this list aligned with
+// data/Judgeme_Reviews_direct_import_example.csv and docs/CSV_EXPORT.md.
 const columns = [
   'title',
   'body',
@@ -548,7 +548,7 @@ function toCsv(rows) {
 }
 
 function directImportValue(row, column) {
-  // Convert rich scraper rows into Shopify's lean CSV shape at download time.
+  // Convert rich scraper rows into Judge.me's lean CSV shape at download time.
   // Internal scraper fields can change without leaking into the exported file.
   const values = {
     title: reviewTitle(row.feedback_text),

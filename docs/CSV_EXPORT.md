@@ -1,10 +1,10 @@
-# Shopify CSV Export
+# Judge.me CSV Export
 
 The browser exports the CSV in `src/main.jsx`.
 
 ## Columns
 
-The output columns intentionally match `data/direct_import_sample.csv`:
+The output columns intentionally match `data/Judgeme_Reviews_direct_import_example.csv`:
 
 ```csv
 title,body,rating,review_date,reviewer_name,reviewer_email,product_id,product_handle,reply,picture_urls
