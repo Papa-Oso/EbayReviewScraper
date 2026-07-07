@@ -5,3 +5,4 @@ dist/
 data/*.sqlite
 data/*.sqlite-*
 data/browser-profile/
+data/ebay_titles_skus_in_display_order.csv

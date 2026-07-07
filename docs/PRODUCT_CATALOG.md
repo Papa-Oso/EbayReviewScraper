@@ -6,6 +6,8 @@ Product matching lives in `server/productCatalog.js` and uses:
 data/ebay_titles_skus_in_display_order.csv
 ```
 
+That file is intentionally ignored by Git because it can contain private SKU data. Use `data/ebay_titles_skus_in_display_order.example.csv` as the public template.
+
 The CSV is expected to contain:
 
 ```csv
@@ -45,6 +47,8 @@ Update `data/ebay_titles_skus_in_display_order.csv` when:
 - a new eBay listing title should map to a Shopify product,
 - a SKU changes,
 - fuzzy matching finds no reasonable result.
+
+If the private catalog is missing, the app still exports reviews and leaves `product_handle` blank.
 
 Run tests after catalog/matching changes:
 

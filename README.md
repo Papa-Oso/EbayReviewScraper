@@ -6,7 +6,7 @@ Local web app for collecting eBay seller/listing feedback and exporting it as a 
 
 - Scrapes eBay listing, seller profile, or store URLs.
 - Keeps a local scan history in `data/feedback.sqlite` so incremental scans can skip feedback already seen.
-- Maps eBay item titles to Shopify product handles through `data/ebay_titles_skus_in_display_order.csv`.
+- Maps eBay item titles to Shopify product handles through an ignored local catalog at `data/ebay_titles_skus_in_display_order.csv`.
 - Exports Shopify-ready CSV columns based on `data/direct_import_sample.csv`.
 - Includes buyer-uploaded feedback photo URLs in `picture_urls` when eBay exposes them in the feedback row.
 
@@ -29,6 +29,12 @@ VITE_DEFAULT_EBAY_URL=https://www.ebay.com/usr/YOUR_SELLER_NAME
 ```
 
 `.env`, browser profile data, and the SQLite database are ignored by Git.
+
+Optional product handle matching uses a private local CSV. Start from the public example and keep your real SKU catalog untracked:
+
+```bash
+cp data/ebay_titles_skus_in_display_order.example.csv data/ebay_titles_skus_in_display_order.csv
+```
 
 ## Run
 
@@ -67,7 +73,8 @@ Use **Reset incremental history** when you want old rows treated as new again, o
 - `server/scraper.js`: Playwright/Cheerio eBay scraping and row parsing.
 - `server/feedbackStore.js`: local SQLite history and incremental reset.
 - `server/productCatalog.js`: SKU/product-handle enrichment.
-- `data/ebay_titles_skus_in_display_order.csv`: source title-to-SKU mapping.
+- `data/ebay_titles_skus_in_display_order.example.csv`: public template for the private title-to-SKU catalog.
+- `data/ebay_titles_skus_in_display_order.csv`: ignored local title-to-SKU catalog.
 - `data/direct_import_sample.csv`: Shopify import CSV shape.
 
 ## Validation

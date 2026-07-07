@@ -6,6 +6,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, '..');
 const catalogPath = path.join(rootDir, 'data', 'ebay_titles_skus_in_display_order.csv');
 let cachedCatalog;
+let cachedCatalogStatus = {
+  available: false,
+  missing: false,
+  count: 0,
+  path: catalogPath
+};
 
 export async function enrichRowsWithProducts(rows) {
   const catalog = await loadProductCatalog();
@@ -34,11 +40,30 @@ export async function loadProductCatalog() {
         sku: cleanText(sku)
       }))
       .filter((record) => record.title && record.sku);
-  } catch {
+    cachedCatalogStatus = {
+      available: true,
+      missing: false,
+      count: cachedCatalog.length,
+      path: catalogPath
+    };
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error;
+
     cachedCatalog = [];
+    cachedCatalogStatus = {
+      available: false,
+      missing: true,
+      count: 0,
+      path: catalogPath
+    };
   }
 
   return cachedCatalog;
+}
+
+export async function productCatalogStatus() {
+  await loadProductCatalog();
+  return cachedCatalogStatus;
 }
 
 export function findSkuForTitle(catalog, title = '') {

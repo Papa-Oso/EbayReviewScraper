@@ -3,11 +3,13 @@ import { createRoot } from 'react-dom/client';
 import {
   AlertCircle,
   CheckCircle2,
+  ChevronRight,
   Download,
   ExternalLink,
   FileSpreadsheet,
   Loader2,
   Music2,
+  Settings2,
   RotateCcw,
   Search,
   Volume2,
@@ -30,10 +32,18 @@ const columns = [
   'picture_urls'
 ];
 
-const defaultEbayUrl = import.meta.env.VITE_DEFAULT_EBAY_URL || '';
+const defaultSettings = {
+  defaultEbayUrl: import.meta.env.VITE_DEFAULT_EBAY_URL || '',
+  theme: 'dark',
+  muted: true,
+  startOnStartup: false
+};
+const SETTINGS_KEY = 'ebay-review-scraper-settings';
 
 function App() {
-  const [url, setUrl] = useState(defaultEbayUrl);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settings, setSettings] = useState(() => readSettings());
+  const [url, setUrl] = useState(() => readSettings().defaultEbayUrl);
   const [maxItems, setMaxItems] = useState(25);
   const [maxPages, setMaxPages] = useState(100);
   const [scanMode, setScanMode] = useState('incremental');
@@ -41,11 +51,29 @@ function App() {
   const [useSavedSession, setUseSavedSession] = useState(true);
   const [loading, setLoading] = useState(false);
   const [resetLoading, setResetLoading] = useState(false);
-  const [muted, setMuted] = useState(true);
+  const [muted, setMuted] = useState(() => readSettings().muted);
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
   const [log, setLog] = useState([]);
   const chiptuneRef = useRef(null);
+
+  const updateSetting = (key, value) => {
+    setSettings((current) => ({ ...current, [key]: value }));
+  };
+
+  const updateDefaultEbayUrl = (nextUrl) => {
+    setUrl((currentUrl) => (!currentUrl || currentUrl === settings.defaultEbayUrl ? nextUrl : currentUrl));
+    updateSetting('defaultEbayUrl', nextUrl);
+  };
+
+  useEffect(() => {
+    persistSettings(settings);
+  }, [settings]);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = settings.theme;
+    document.documentElement.style.colorScheme = settings.theme;
+  }, [settings.theme]);
 
   const exactCount = useMemo(() => {
     return (result?.rows ?? []).filter((row) => row.match_type !== 'seller-profile').length;
@@ -56,6 +84,10 @@ function App() {
       chiptuneRef.current?.stop();
       chiptuneRef.current = null;
     }
+  }, [muted]);
+
+  useEffect(() => {
+    setSettings((current) => ({ ...current, muted }));
   }, [muted]);
 
   async function runScrape(event) {
@@ -137,17 +169,27 @@ function App() {
   }
 
   function toggleMute() {
-    setMuted((current) => {
-      if (!current) {
+    setMuted((currentMuted) => {
+      if (!currentMuted) {
         chiptuneRef.current?.stop();
         chiptuneRef.current = null;
+        setSettings((current) => ({ ...current, muted: true }));
         return true;
       }
 
       chiptuneRef.current = createChiptuneLoop();
       chiptuneRef.current.start();
+      setSettings((current) => ({ ...current, muted: false }));
       return false;
     });
+  }
+
+  function resetSettings() {
+    chiptuneRef.current?.stop();
+    chiptuneRef.current = null;
+    setSettings(defaultSettings);
+    setMuted(defaultSettings.muted);
+    setUrl(defaultSettings.defaultEbayUrl);
   }
 
   function downloadCsv() {
@@ -173,15 +215,26 @@ function App() {
               <h1>eBay Feedback Exporter</h1>
               <p>Listing and store feedback to CSV</p>
             </div>
-            <button
-              type="button"
-              className={`sound-toggle ${muted ? 'muted' : ''}`}
-              onClick={toggleMute}
-              title={muted ? 'Unmute chiptune' : 'Mute chiptune'}
-              aria-label={muted ? 'Unmute chiptune' : 'Mute chiptune'}
-            >
-              {muted ? <VolumeX size={18} aria-hidden="true" /> : <Volume2 size={18} aria-hidden="true" />}
-            </button>
+            <div className="brand-actions">
+              <button
+                type="button"
+                className={`sound-toggle ${muted ? 'muted' : ''}`}
+                onClick={toggleMute}
+                title={muted ? 'Unmute chiptune' : 'Mute chiptune'}
+                aria-label={muted ? 'Unmute chiptune' : 'Mute chiptune'}
+              >
+                {muted ? <VolumeX size={18} aria-hidden="true" /> : <Volume2 size={18} aria-hidden="true" />}
+              </button>
+              <button
+                type="button"
+                className={`settings-toggle ${settingsOpen ? 'active' : ''}`}
+                onClick={() => setSettingsOpen((current) => !current)}
+                title="Open settings"
+                aria-label="Open settings"
+              >
+                {settingsOpen ? <ChevronRight size={18} aria-hidden="true" /> : <Settings2 size={18} aria-hidden="true" />}
+              </button>
+            </div>
           </div>
 
           <form onSubmit={runScrape} className="form">
@@ -359,8 +412,114 @@ function App() {
           </div>
         </section>
       </section>
+
+      {settingsOpen && <button type="button" className="settings-backdrop" onClick={() => setSettingsOpen(false)} aria-label="Close settings" />}
+      <aside
+        className={`settings-drawer ${settingsOpen ? 'open' : ''}`}
+        aria-hidden={!settingsOpen}
+        inert={!settingsOpen}
+        aria-label="Settings"
+      >
+        <div className="settings-header">
+          <h2>Settings</h2>
+          <button type="button" className="settings-close" onClick={() => setSettingsOpen(false)} aria-label="Close settings">
+            <ChevronRight size={18} aria-hidden="true" />
+          </button>
+        </div>
+
+        <div className="settings-grid">
+          <div className="settings-field-with-action">
+            <label className="field">
+              <span>Default eBay URL</span>
+              <input
+                value={settings.defaultEbayUrl}
+                onChange={(event) => updateDefaultEbayUrl(event.target.value)}
+                placeholder="https://www.ebay.com/usr/YOUR_SELLER_NAME"
+              />
+            </label>
+            <button
+              type="button"
+              className="icon-action"
+              onClick={() => updateDefaultEbayUrl(url)}
+              title="Use current URL as default"
+              aria-label="Use current URL as default"
+            >
+              <CheckCircle2 size={18} aria-hidden="true" />
+            </button>
+          </div>
+
+          <div className="control-group">
+            <span className="group-label">Theme</span>
+            <div className="segmented two-part" aria-label="Theme">
+              {[
+                ['dark', 'Dark'],
+                ['light', 'Light']
+              ].map(([value, label]) => (
+                <button
+                  type="button"
+                  key={value}
+                  className={settings.theme === value ? 'active' : ''}
+                  onClick={() => updateSetting('theme', value)}
+                >
+                  <span>{label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <label className="check-row session-toggle">
+            <input
+              type="checkbox"
+              checked={settings.muted}
+              onChange={(event) => {
+                setMuted(event.target.checked);
+                updateSetting('muted', event.target.checked);
+              }}
+            />
+            <span>Mute chiptune on startup</span>
+          </label>
+
+          <label className="check-row session-toggle">
+            <input
+              type="checkbox"
+              checked={settings.startOnStartup}
+              onChange={(event) => updateSetting('startOnStartup', event.target.checked)}
+            />
+            <span>Start on system startup</span>
+          </label>
+        </div>
+
+        <button type="button" className="secondary reset-settings" onClick={resetSettings}>
+          <RotateCcw size={18} aria-hidden="true" />
+          <span>Reset settings</span>
+        </button>
+      </aside>
     </main>
   );
+}
+
+function readSettings() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || 'null');
+    if (!saved || typeof saved !== 'object') return defaultSettings;
+    return {
+      ...defaultSettings,
+      ...saved,
+      theme: saved.theme === 'light' ? 'light' : 'dark',
+      muted: Boolean(saved.muted),
+      startOnStartup: Boolean(saved.startOnStartup ?? saved.openSettingsOnStartup)
+    };
+  } catch {
+    return defaultSettings;
+  }
+}
+
+function persistSettings(settings) {
+  try {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  } catch {
+    // Ignore storage failures in constrained environments.
+  }
 }
 
 function Metric({ label, value }) {

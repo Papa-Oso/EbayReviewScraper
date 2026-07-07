@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { scrapeEbayFeedback } from './scraper.js';
 import { applyFeedbackHistory, resetFeedbackHistory } from './feedbackStore.js';
-import { enrichRowsWithProducts } from './productCatalog.js';
+import { enrichRowsWithProducts, productCatalogStatus } from './productCatalog.js';
 
 const app = express();
 const port = process.env.PORT || 4141;
@@ -50,6 +50,13 @@ app.post('/api/scrape', async (req, res) => {
     const history = await applyFeedbackHistory(result.rows, { scanMode });
     result.rows = await enrichRowsWithProducts(history.rows);
     result.history = history.stats;
+    const catalog = await productCatalogStatus();
+    if (catalog.missing) {
+      result.warnings = [
+        ...(result.warnings || []),
+        'Product catalog CSV was not found, so product_handle values are blank.'
+      ];
+    }
     res.json(result);
   } catch (error) {
     res.status(500).json({
