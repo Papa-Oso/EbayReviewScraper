@@ -148,6 +148,35 @@ test('listing page feedback rows keep product image urls', () => {
   assert.equal(rows[0].matched_item_image_url, 'https://i.ebayimg.com/images/g/example/s-l1600.jpg');
 });
 
+test('reviewer names drop feedback counts and prices', () => {
+  assert.equal(scraperInternals.normalizeFeedbackFrom('jumppilotross (823)US $29.99'), 'jumppilotross');
+  assert.equal(scraperInternals.normalizeFeedbackFrom('Buyer: grizz1975 (52) US $29.99 Verified purchase'), 'grizz1975');
+});
+
+test('listing page feedback buyer names are export ready', () => {
+  const rows = scraperInternals.parseListingPageFeedbackRows(
+    `
+      <section>
+        <div class="card__feedback">
+          <span class="card__comment">Excellent product quick delivery.</span>
+          <a href="/usr/jumppilotross">jumppilotross (823)US $29.99</a>
+          <a href="/itm/327029277067">HJC Helmet Adapter Mount for Cardo Packtalk Edge / Neo / Pro / Custom</a>
+        </div>
+      </section>
+    `,
+    {
+      url: 'https://www.ebay.com/itm/327029277067',
+      itemId: '327029277067',
+      title: 'HJC Helmet Adapter Mount for Cardo Packtalk Edge / Neo / Pro / Custom',
+      imageUrl: 'https://i.ebayimg.com/images/g/hjc/s-l1600.jpg',
+      sellerUsername: 'joshswidgets',
+      feedbackUrl: 'https://feedback.ebay.com/fdbk/feedback_profile/joshswidgets'
+    }
+  );
+
+  assert.equal(rows[0].buyer_username, 'jumppilotross');
+});
+
 test('listing image url is read from listing metadata', () => {
   const $ = cheerio.load('<meta property="og:image" content="https://i.ebayimg.com/images/g/example/s-l1600.jpg">');
 

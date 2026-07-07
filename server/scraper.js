@@ -273,7 +273,33 @@ async function scrapeSellerFeedback(page, listing, maxPages, options) {
     options.warnings.push(`No feedback rows were readable for seller ${listing.sellerUsername}.`);
   }
 
-  return rows;
+  return enrichRowsWithMatchedItemImages(page, rows, options);
+}
+
+async function enrichRowsWithMatchedItemImages(page, rows, options) {
+  const imageByUrl = new Map();
+  const itemUrls = [...new Set(rows
+    .filter((row) => row.matched_item_url && !row.matched_item_image_url)
+    .map((row) => row.matched_item_url)
+  )].slice(0, 100);
+
+  for (const itemUrl of itemUrls) {
+    try {
+      await goto(page, itemUrl, options);
+      let html = await readStableContent(page);
+      html = await handleEbayErrorPage(page, html, itemUrl, options);
+      const $ = cheerio.load(html);
+      imageByUrl.set(itemUrl, extractListingImageUrl($, itemUrl));
+    } catch {
+      imageByUrl.set(itemUrl, '');
+    }
+  }
+
+  return rows.map((row) => ({
+    ...row,
+    matched_item_image_url: row.matched_item_image_url || imageByUrl.get(row.matched_item_url) || '',
+    source_item_image_url: row.source_item_image_url || imageByUrl.get(row.source_listing_url) || ''
+  }));
 }
 
 function parseFeedbackRows(html, listing) {
@@ -304,7 +330,7 @@ function parseFeedbackRows(html, listing) {
       $(element).find('[class*="comment"], [class*="rating"], [data-test-id*="comment"]').first().text()
     ) || rowText;
     const date = cleanText($(element).find('time').first().attr('datetime') || $(element).find('time').first().text());
-    const buyer = cleanText($(element).find('a[href*="/usr/"]').last().text());
+    const buyer = normalizeFeedbackFrom($(element).find('a[href*="/usr/"]').last().text());
     const rating = inferRating(rowText);
     const matchType = inferMatchType({ listing, itemId, itemText, rowText });
 
@@ -382,7 +408,7 @@ function parseListingPageFeedbackRows(html, listing) {
       matched_item_image_url: listing.imageUrl || '',
       match_type: 'listing-page',
       rating: normalizeRating(rowText),
-      buyer_username: cleanText(container.find('a[href*="/usr/"]').last().text()),
+      buyer_username: normalizeFeedbackFrom(container.find('a[href*="/usr/"]').last().text()),
       feedback_date: extractRelativeDate(rowText),
       feedback_text: comment
     });
@@ -734,6 +760,8 @@ function normalizeFeedbackFrom(text = '') {
     .replace(/^Buyer:\s*/i, '')
     .replace(/^eBay automated feedback$/i, 'eBay automated feedback')
     .replace(/\s*Verified purchase\s*/i, '')
+    .replace(/\s*\([^)]*\).*$/, '')
+    .replace(/\s*US\s*\$.*$/i, '')
     .trim();
 }
 
@@ -930,6 +958,7 @@ export const scraperInternals = {
   extractFeedbackTotalPages,
   parseListingPageFeedbackRows,
   extractListingImageUrl,
+  normalizeFeedbackFrom,
   browserLaunchMode,
   isLoggedOutEbayPage,
   isRetryableNavigationError,
