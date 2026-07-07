@@ -2,6 +2,11 @@
 
 The browser exports the CSV in `src/main.jsx`.
 
+The UI has two export scopes:
+
+- **Latest CSV**: rows from the latest scrape export set. In incremental mode, these are the newly discovered rows highlighted in the table.
+- **All CSV**: every saved row currently visible in the table.
+
 ## Columns
 
 The output columns intentionally match `data/Judgeme_Reviews_direct_import_example.csv`:

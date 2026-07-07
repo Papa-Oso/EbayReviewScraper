@@ -26,6 +26,8 @@ The server then:
 
 The browser performs CSV generation client-side from the returned rows.
 
+On startup, the UI calls `GET /api/feedback-history` to load every saved row from SQLite. After a scrape, `rows` contains the full saved history for display and `latestRows` contains the current export set. Incremental scans mark only `latestRows` as highlighted in the table.
+
 ## Local State
 
 Ignored local state:
@@ -48,5 +50,6 @@ The app checks the first loaded eBay page for signed-out wording and only sends 
 ## API Routes
 
 - `GET /api/health`: health check.
+- `GET /api/feedback-history`: load all saved feedback rows for startup display.
 - `POST /api/scrape`: scrape, history-filter, and enrich feedback rows.
 - `POST /api/feedback-history/reset`: delete all rows from `scanned_feedback`.

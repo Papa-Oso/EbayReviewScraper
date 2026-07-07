@@ -6,6 +6,7 @@ Local web app for collecting eBay seller/listing feedback and exporting it as a 
 
 - Scrapes eBay listing, seller profile, or store URLs.
 - Keeps a local scan history in `data/feedback.sqlite` so incremental scans can skip feedback already seen.
+- Loads saved feedback on startup so the full local review history is visible.
 - Maps eBay item titles to Shopify product handles through an ignored local catalog at `data/Item_SKU_X_Ref.csv`.
 - Exports Judge.me-ready CSV columns based on `data/Judgeme_Reviews_direct_import_example.csv`.
 - Includes buyer-uploaded feedback photo URLs in `picture_urls` when eBay exposes them in the feedback row.
@@ -61,7 +62,7 @@ http://127.0.0.1:4141
    - `Incremental`: skip rows already saved in SQLite.
    - `Full`: include all rows seen during this scan.
 3. Scrape feedback.
-4. Download CSV.
+4. Download **Latest CSV** for the newly exported incremental rows, or **All CSV** for every saved row.
 
 Use **Reset incremental history** when you want old rows treated as new again, or after changing parsing/export behavior.
 

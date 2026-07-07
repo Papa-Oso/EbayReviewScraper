@@ -24,6 +24,7 @@ export async function applyFeedbackHistory(rows, { scanMode = 'full' } = {}) {
     for (const row of rows.map(withStarRating)) {
       const feedbackKey = feedbackKeyFor(row);
       const exists = hasFeedback(db, feedbackKey);
+      const rowWithKey = { ...row, feedback_key: feedbackKey };
 
       if (exists && mode === 'incremental') {
         skippedRows += 1;
@@ -31,9 +32,9 @@ export async function applyFeedbackHistory(rows, { scanMode = 'full' } = {}) {
         continue;
       }
 
-      upsertFeedback(db, feedbackKey, row, now);
+      upsertFeedback(db, feedbackKey, rowWithKey, now);
       if (!exists) newRows += 1;
-      outputRows.push(row);
+      outputRows.push(rowWithKey);
     }
 
     await saveDatabase(db);
@@ -52,6 +53,46 @@ export async function applyFeedbackHistory(rows, { scanMode = 'full' } = {}) {
       database_path: dbPath
     }
   };
+}
+
+export async function loadFeedbackHistory() {
+  const db = await openDatabase();
+
+  try {
+    const result = db.exec(`
+      SELECT
+        feedback_key,
+        feedback_id,
+        seller_username,
+        source_item_id,
+        source_item_title,
+        source_item_image_url,
+        matched_item_id,
+        matched_item_title,
+        matched_item_image_url,
+        rating,
+        star_rating,
+        buyer_username,
+        feedback_date,
+        feedback_text,
+        feedback_image_urls,
+        source_listing_url,
+        matched_item_url,
+        feedback_profile_url,
+        match_type,
+        first_seen_at,
+        last_seen_at
+      FROM scanned_feedback
+      ORDER BY last_seen_at DESC, first_seen_at DESC
+    `);
+
+    const columns = result[0]?.columns ?? [];
+    return (result[0]?.values ?? []).map((values) => {
+      return Object.fromEntries(columns.map((column, index) => [column, values[index] ?? '']));
+    });
+  } finally {
+    db.close();
+  }
 }
 
 export async function resetFeedbackHistory() {

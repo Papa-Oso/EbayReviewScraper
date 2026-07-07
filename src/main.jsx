@@ -50,6 +50,7 @@ function App() {
   const [allowManualVerification, setAllowManualVerification] = useState(true);
   const [useSavedSession, setUseSavedSession] = useState(true);
   const [loading, setLoading] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(true);
   const [resetLoading, setResetLoading] = useState(false);
   const [muted, setMuted] = useState(() => readSettings().muted);
   const [result, setResult] = useState(null);
@@ -61,8 +62,8 @@ function App() {
     setSettings((current) => ({ ...current, [key]: value }));
   };
 
-  const updateDefaultEbayUrl = (nextUrl) => {
-    setUrl((currentUrl) => (!currentUrl || currentUrl === settings.defaultEbayUrl ? nextUrl : currentUrl));
+  const updateUrl = (nextUrl) => {
+    setUrl(nextUrl);
     updateSetting('defaultEbayUrl', nextUrl);
   };
 
@@ -75,9 +76,15 @@ function App() {
     document.documentElement.style.colorScheme = settings.theme;
   }, [settings.theme]);
 
+  useEffect(() => {
+    loadSavedReviews();
+  }, []);
+
   const exactCount = useMemo(() => {
     return (result?.rows ?? []).filter((row) => row.match_type !== 'seller-profile').length;
   }, [result]);
+
+  const latestCount = result?.latestRows?.length ?? 0;
 
   useEffect(() => {
     if (muted) {
@@ -89,6 +96,27 @@ function App() {
   useEffect(() => {
     setSettings((current) => ({ ...current, muted }));
   }, [muted]);
+
+  async function loadSavedReviews() {
+    setHistoryLoading(true);
+
+    try {
+      const response = await fetch('/api/feedback-history');
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || 'Saved feedback could not be loaded.');
+      setResult(payload);
+      if (payload.rows.length) {
+        setLog((entries) => [
+          ...entries,
+          `Loaded ${payload.rows.length} saved review${payload.rows.length === 1 ? '' : 's'}`
+        ]);
+      }
+    } catch (caught) {
+      setError(caught.message);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }
 
   async function runScrape(event) {
     event.preventDefault();
@@ -124,7 +152,8 @@ function App() {
       setLog((entries) => [
         ...entries,
         `Resolved ${payload.listings.length} listing${payload.listings.length === 1 ? '' : 's'}`,
-        `Collected ${payload.rows.length} feedback row${payload.rows.length === 1 ? '' : 's'}`,
+        `Showing ${payload.rows.length} saved review${payload.rows.length === 1 ? '' : 's'}`,
+        `Collected ${payload.latestRows?.length ?? 0} latest export row${payload.latestRows?.length === 1 ? '' : 's'}`,
         payload.history
           ? `${payload.history.new_rows} new, ${payload.history.skipped_existing_rows} already scanned`
           : ''
@@ -151,8 +180,12 @@ function App() {
 
       setResult((current) => current ? {
         ...current,
+        rows: [],
+        latestRows: [],
         history: {
           ...current.history,
+          rows_seen: 0,
+          rows_exported: 0,
           new_rows: 0,
           skipped_existing_rows: 0
         }
@@ -192,13 +225,13 @@ function App() {
     setUrl(defaultSettings.defaultEbayUrl);
   }
 
-  function downloadCsv() {
-    if (!result?.rows?.length) return;
-    const csv = toCsv(result.rows);
+  function downloadCsv(rows, scope) {
+    if (!rows?.length) return;
+    const csv = toCsv(rows);
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
-    link.download = csvFilename(result);
+    link.download = csvFilename(result, scope);
     link.click();
     URL.revokeObjectURL(link.href);
   }
@@ -243,7 +276,7 @@ function App() {
                 <span>eBay URL</span>
                 <input
                   value={url}
-                  onChange={(event) => setUrl(event.target.value)}
+                  onChange={(event) => updateUrl(event.target.value)}
                   placeholder="https://www.ebay.com/itm/..."
                   required
                 />
@@ -300,17 +333,27 @@ function App() {
                 </div>
               </div>
 
-              <label className="check-row session-toggle">
-                <input
-                  type="checkbox"
-                  checked={useSavedSession}
-                  onChange={(event) => {
-                    setUseSavedSession(event.target.checked);
-                    if (event.target.checked) setAllowManualVerification(true);
-                  }}
-                />
-                <span>Use saved eBay login session</span>
-              </label>
+              <div className="control-group">
+                <span className="group-label">Saved eBay session</span>
+                <div className="segmented two-part" aria-label="Saved eBay session">
+                  {[
+                    [true, 'On'],
+                    [false, 'Off']
+                  ].map(([value, label]) => (
+                    <button
+                      type="button"
+                      key={label}
+                      className={useSavedSession === value ? 'active' : ''}
+                      onClick={() => {
+                        setUseSavedSession(value);
+                        if (value) setAllowManualVerification(true);
+                      }}
+                    >
+                      <span>{label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
 
               <button
                 type="button"
@@ -349,11 +392,15 @@ function App() {
           <div className="summary-band">
             <Metric label="Rows" value={result?.rows?.length ?? 0} />
             <Metric label="Exact item matches" value={exactCount} />
-            <Metric label="New rows" value={result?.history?.new_rows ?? 0} />
+            <Metric label="Latest export" value={latestCount} />
             <Metric label="Skipped" value={result?.history?.skipped_existing_rows ?? 0} />
-            <button className="export" onClick={downloadCsv} disabled={!result?.rows?.length}>
+            <button className="export" onClick={() => downloadCsv(result?.latestRows, 'latest')} disabled={!latestCount}>
               <Download size={18} aria-hidden="true" />
-              <span>CSV</span>
+              <span>Latest CSV</span>
+            </button>
+            <button className="export secondary-export" onClick={() => downloadCsv(result?.rows, 'all')} disabled={!result?.rows?.length}>
+              <Download size={18} aria-hidden="true" />
+              <span>All CSV</span>
             </button>
           </div>
 
@@ -365,7 +412,12 @@ function App() {
           )}
 
           <div className="table-shell">
-            {result?.rows?.length ? (
+            {historyLoading ? (
+              <div className="empty">
+                <Loader2 className="spin" size={40} aria-hidden="true" />
+                <p>Loading saved reviews.</p>
+              </div>
+            ) : result?.rows?.length ? (
               <table>
                 <thead>
                   <tr>
@@ -380,14 +432,17 @@ function App() {
                   </tr>
                 </thead>
                 <tbody>
-                  {result.rows.slice(0, 100).map((row, index) => (
-                    <tr key={`${row.seller_username}-${row.feedback_date}-${index}`}>
+                  {result.rows.map((row, index) => (
+                    <tr className={row.is_latest ? 'latest-row' : ''} key={row.feedback_key || `${row.seller_username}-${row.feedback_date}-${index}`}>
                       <td>
                         <strong>{row.matched_item_title || row.source_item_title || 'Untitled item'}</strong>
                         <span>{row.matched_item_id || row.source_item_id}</span>
                       </td>
                       <td>{row.seller_username}</td>
-                      <td><Badge value={row.match_type} /></td>
+                      <td>
+                        <Badge value={row.match_type} />
+                        {row.is_latest && <span className="latest-pill">Latest</span>}
+                      </td>
                       <td>{row.rating || 'Unknown'}</td>
                       <td>{row.star_rating === '' || row.star_rating == null ? 'Unknown' : Number(row.star_rating).toFixed(0)}</td>
                       <td>{row.feedback_date || 'Unknown'}</td>
@@ -428,24 +483,9 @@ function App() {
         </div>
 
         <div className="settings-grid">
-          <div className="settings-field-with-action">
-            <label className="field">
-              <span>Default eBay URL</span>
-              <input
-                value={settings.defaultEbayUrl}
-                onChange={(event) => updateDefaultEbayUrl(event.target.value)}
-                placeholder="https://www.ebay.com/usr/YOUR_SELLER_NAME"
-              />
-            </label>
-            <button
-              type="button"
-              className="icon-action"
-              onClick={() => updateDefaultEbayUrl(url)}
-              title="Use current URL as default"
-              aria-label="Use current URL as default"
-            >
-              <CheckCircle2 size={18} aria-hidden="true" />
-            </button>
+          <div className="settings-note">
+            <span>Default eBay URL</span>
+            <strong>{settings.defaultEbayUrl || 'Not set'}</strong>
           </div>
 
           <div className="control-group">
@@ -467,26 +507,46 @@ function App() {
             </div>
           </div>
 
-          <label className="check-row session-toggle">
-            <input
-              type="checkbox"
-              checked={settings.muted}
-              onChange={(event) => {
-                setMuted(event.target.checked);
-                updateSetting('muted', event.target.checked);
-              }}
-            />
-            <span>Mute chiptune on startup</span>
-          </label>
+          <div className="control-group">
+            <span className="group-label">Chiptune on startup</span>
+            <div className="segmented two-part" aria-label="Chiptune on startup">
+              {[
+                [true, 'Muted'],
+                [false, 'Armed']
+              ].map(([value, label]) => (
+                <button
+                  type="button"
+                  key={label}
+                  className={settings.muted === value ? 'active' : ''}
+                  onClick={() => {
+                    setMuted(value);
+                    updateSetting('muted', value);
+                  }}
+                >
+                  <span>{label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
 
-          <label className="check-row session-toggle">
-            <input
-              type="checkbox"
-              checked={settings.startOnStartup}
-              onChange={(event) => updateSetting('startOnStartup', event.target.checked)}
-            />
-            <span>Start on system startup</span>
-          </label>
+          <div className="control-group">
+            <span className="group-label">System startup</span>
+            <div className="segmented two-part" aria-label="System startup">
+              {[
+                [true, 'On'],
+                [false, 'Off']
+              ].map(([value, label]) => (
+                <button
+                  type="button"
+                  key={label}
+                  className={settings.startOnStartup === value ? 'active' : ''}
+                  onClick={() => updateSetting('startOnStartup', value)}
+                >
+                  <span>{label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
 
         <button type="button" className="secondary reset-settings" onClick={resetSettings}>
@@ -583,7 +643,7 @@ function reviewDate(value = '') {
   return date.toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, ' UTC');
 }
 
-function csvFilename(result) {
+function csvFilename(result, scope = 'latest') {
   const date = new Date().toISOString().slice(0, 10);
   const firstListing = result?.listings?.[0] ?? {};
   const firstRow = result?.rows?.[0] ?? {};
@@ -592,7 +652,8 @@ function csvFilename(result) {
     ? firstListing.title || firstListing.itemId || firstRow.source_item_title || firstRow.source_item_id
     : firstListing.sellerUsername || firstRow.seller_username || 'seller-feedback';
 
-  return `ebay-feedback-${slugForFilename(label)}-${date}.csv`;
+  const suffix = scope === 'all' ? 'all' : 'latest';
+  return `ebay-feedback-${slugForFilename(label)}-${suffix}-${date}.csv`;
 }
 
 function slugForFilename(value = '') {

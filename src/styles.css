@@ -165,21 +165,6 @@ input:focus {
   border-color: #276f86;
 }
 
-input[type="checkbox"] {
-  width: 17px;
-  height: 17px;
-  accent-color: #276f86;
-}
-
-.check-row {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  color: #344054;
-  font-size: 13px;
-  font-weight: 650;
-}
-
 .segmented {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -197,8 +182,7 @@ input[type="checkbox"] {
 .primary,
 .secondary,
 .secondary-danger,
-.export,
-.icon-action {
+.export {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -263,14 +247,6 @@ input[type="checkbox"] {
   min-height: 42px;
 }
 
-.session-toggle {
-  min-height: 42px;
-  padding: 0 12px;
-  border: 1px solid #cbd3dd;
-  border-radius: 7px;
-  background: #fbfcfd;
-}
-
 .spin {
   animation: spin 900ms linear infinite;
 }
@@ -308,7 +284,7 @@ input[type="checkbox"] {
 
 .summary-band {
   display: grid;
-  grid-template-columns: repeat(4, minmax(110px, 1fr)) auto;
+  grid-template-columns: repeat(4, minmax(110px, 1fr)) auto auto;
   gap: 12px;
   align-items: stretch;
   padding: 16px;
@@ -343,6 +319,12 @@ input[type="checkbox"] {
   background: #1f7a54;
   font-weight: 750;
   align-self: stretch;
+}
+
+.secondary-export {
+  color: #1f7a54;
+  background: #e9f7ef;
+  border: 1px solid #bfe4cc;
 }
 
 .warning-strip {
@@ -393,6 +375,14 @@ td {
   color: #1f2937;
   line-height: 1.35;
   word-wrap: break-word;
+}
+
+.latest-row {
+  background: #edf9f3;
+}
+
+.latest-row td {
+  border-bottom-color: #cbead7;
 }
 
 td strong,
@@ -466,6 +456,19 @@ a {
   background: #eaf2ff;
 }
 
+.latest-pill {
+  display: inline-flex;
+  width: fit-content;
+  margin-top: 6px;
+  padding: 3px 7px;
+  border-radius: 999px;
+  color: #166534;
+  background: #dcfce7;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
 .empty {
   min-height: 620px;
   display: grid;
@@ -510,6 +513,28 @@ a {
   gap: 12px;
 }
 
+.settings-note {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid #cbd3dd;
+  border-radius: 7px;
+  background: #fbfcfd;
+}
+
+.settings-note span {
+  color: #4b5563;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.settings-note strong {
+  color: #161b25;
+  font-size: 13px;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+
 .settings-backdrop {
   position: fixed;
   inset: 0;
@@ -539,21 +564,6 @@ a {
 
 .settings-drawer.open {
   transform: translateX(0);
-}
-
-.settings-field-with-action {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 42px;
-  gap: 8px;
-  align-items: end;
-}
-
-.icon-action {
-  width: 42px;
-  height: 42px;
-  color: #276f86;
-  background: #eef7fa;
-  border: 1px solid #b8d9e4;
 }
 
 .reset-settings {
@@ -698,7 +708,6 @@ html[data-theme="dark"] h1 {
 html[data-theme="dark"] p,
 html[data-theme="dark"] .field span,
 html[data-theme="dark"] .group-label,
-html[data-theme="dark"] .check-row,
 html[data-theme="dark"] .status-row,
 html[data-theme="dark"] td,
 html[data-theme="dark"] td span,
@@ -755,15 +764,6 @@ html[data-theme="dark"] input:focus {
   border-color: #ffe84d;
 }
 
-html[data-theme="dark"] input[type="checkbox"] {
-  accent-color: #ff2bd6;
-}
-
-html[data-theme="dark"] .session-toggle {
-  background: rgba(2, 8, 23, 0.42);
-  border-color: rgba(0, 246, 255, 0.32);
-}
-
 html[data-theme="dark"] .segmented {
   background: rgba(0, 0, 0, 0.26);
   border: 1px solid rgba(255, 43, 214, 0.32);
@@ -785,6 +785,12 @@ html[data-theme="dark"] .export {
   background: linear-gradient(135deg, #ffe84d 0%, #00f6ff 48%, #ff2bd6 100%);
   box-shadow: 0 0 24px rgba(0, 246, 255, 0.36);
   text-transform: uppercase;
+}
+
+html[data-theme="dark"] .secondary-export {
+  color: #d7ecff;
+  background: rgba(2, 8, 23, 0.42);
+  border-color: rgba(0, 246, 255, 0.28);
 }
 
 html[data-theme="dark"] .secondary-danger {
@@ -858,6 +864,14 @@ html[data-theme="dark"] td {
   border-bottom-color: rgba(0, 246, 255, 0.14);
 }
 
+html[data-theme="dark"] .latest-row {
+  background: rgba(0, 246, 255, 0.08);
+}
+
+html[data-theme="dark"] .latest-row td {
+  border-bottom-color: rgba(255, 232, 77, 0.26);
+}
+
 html[data-theme="dark"] td strong {
   color: #ffffff;
 }
@@ -879,6 +893,12 @@ html[data-theme="dark"] .badge.title {
   background: linear-gradient(135deg, #00f6ff, #ff9fef);
 }
 
+html[data-theme="dark"] .latest-pill {
+  color: #06131f;
+  background: #ffe84d;
+  box-shadow: 0 0 14px rgba(255, 232, 77, 0.35);
+}
+
 html[data-theme="dark"] .empty {
   color: #d7ecff;
 }
@@ -898,7 +918,6 @@ html[data-theme="dark"] .settings-drawer {
 
 html[data-theme="dark"] .settings-toggle,
 html[data-theme="dark"] .settings-close,
-html[data-theme="dark"] .icon-action,
 html[data-theme="dark"] .secondary {
   color: #d7ecff;
   background: rgba(2, 8, 23, 0.42);
@@ -910,10 +929,20 @@ html[data-theme="dark"] .settings-toggle.active {
 }
 
 html[data-theme="dark"] .settings-drawer .field span,
-html[data-theme="dark"] .settings-drawer .group-label {
+html[data-theme="dark"] .settings-drawer .group-label,
+html[data-theme="dark"] .settings-note span {
   color: #d7ecff;
 }
 
 html[data-theme="dark"] .settings-drawer input {
   background: rgba(2, 8, 23, 0.58);
+}
+
+html[data-theme="dark"] .settings-note {
+  background: rgba(2, 8, 23, 0.42);
+  border-color: rgba(0, 246, 255, 0.32);
+}
+
+html[data-theme="dark"] .settings-note strong {
+  color: #ffffff;
 }

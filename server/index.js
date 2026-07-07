@@ -3,7 +3,7 @@ import cors from 'cors';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { scrapeEbayFeedback } from './scraper.js';
-import { applyFeedbackHistory, resetFeedbackHistory } from './feedbackStore.js';
+import { applyFeedbackHistory, loadFeedbackHistory, resetFeedbackHistory } from './feedbackStore.js';
 import { enrichRowsWithProducts, productCatalogStatus } from './productCatalog.js';
 
 const app = express();
@@ -16,6 +16,33 @@ app.use(express.json({ limit: '1mb' }));
 
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true });
+});
+
+app.get('/api/feedback-history', async (_req, res) => {
+  try {
+    const rows = await enrichRowsWithProducts(await loadFeedbackHistory());
+    const payload = {
+      mode: 'history',
+      listings: [],
+      rows: rows.map((row) => ({ ...row, is_latest: false })),
+      latestRows: [],
+      warnings: [],
+      history: {
+        scan_mode: 'history',
+        rows_seen: rows.length,
+        rows_exported: 0,
+        new_rows: 0,
+        skipped_existing_rows: 0
+      }
+    };
+
+    await appendCatalogWarning(payload);
+    res.json(payload);
+  } catch (error) {
+    res.status(500).json({
+      error: error.message || 'Saved feedback could not be loaded.'
+    });
+  }
 });
 
 app.post('/api/scrape', async (req, res) => {
@@ -46,17 +73,15 @@ app.post('/api/scrape', async (req, res) => {
 
     // Scraped rows are deliberately processed in this order:
     // 1. history filtering decides whether rows are new enough to export,
-    // 2. product enrichment maps the surviving rows to Shopify handles.
+    // 2. product enrichment maps rows to Judge.me product handles.
     const history = await applyFeedbackHistory(result.rows, { scanMode });
-    result.rows = await enrichRowsWithProducts(history.rows);
+    const latestRows = await enrichRowsWithProducts(history.rows);
+    const latestKeys = new Set(latestRows.map((row) => row.feedback_key).filter(Boolean));
+    const allRows = await enrichRowsWithProducts(await loadFeedbackHistory());
+    result.latestRows = latestRows.map((row) => ({ ...row, is_latest: true }));
+    result.rows = allRows.map((row) => ({ ...row, is_latest: latestKeys.has(row.feedback_key) }));
     result.history = history.stats;
-    const catalog = await productCatalogStatus();
-    if (catalog.missing) {
-      result.warnings = [
-        ...(result.warnings || []),
-        'Product catalog CSV was not found, so product_handle values are blank.'
-      ];
-    }
+    await appendCatalogWarning(result);
     res.json(result);
   } catch (error) {
     res.status(500).json({
@@ -92,4 +117,14 @@ function clampNumber(value, min, max, fallback) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return fallback;
   return Math.min(max, Math.max(min, Math.trunc(parsed)));
+}
+
+async function appendCatalogWarning(payload) {
+  const catalog = await productCatalogStatus();
+  if (!catalog.missing) return;
+
+  payload.warnings = [
+    ...(payload.warnings || []),
+    'Product catalog CSV was not found, so product_handle values are blank.'
+  ];
 }

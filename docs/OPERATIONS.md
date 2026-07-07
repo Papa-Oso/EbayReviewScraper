@@ -4,6 +4,8 @@
 
 Incremental scans use `data/feedback.sqlite` to avoid exporting rows already seen.
 
+The app loads this database on startup and shows all saved reviews. New rows from the latest incremental scrape are highlighted and are the only rows included in **Latest CSV**.
+
 Use **Reset incremental history** in the UI when:
 
 - parser logic changes,
