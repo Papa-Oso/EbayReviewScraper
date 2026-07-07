@@ -128,6 +128,7 @@ input[type="checkbox"] {
 
 .segmented button,
 .primary,
+.secondary-danger,
 .export {
   display: inline-flex;
   align-items: center;
@@ -164,9 +165,18 @@ input[type="checkbox"] {
 }
 
 .primary:disabled,
+.secondary-danger:disabled,
 .export:disabled {
   cursor: not-allowed;
   opacity: 0.6;
+}
+
+.secondary-danger {
+  width: 100%;
+  color: #8a231b;
+  background: #fff1f0;
+  border: 1px solid #f2aaa3;
+  font-weight: 750;
 }
 
 .spin {
@@ -205,7 +215,7 @@ input[type="checkbox"] {
 
 .summary-band {
   display: grid;
-  grid-template-columns: repeat(3, minmax(120px, 1fr)) auto;
+  grid-template-columns: repeat(4, minmax(110px, 1fr)) auto;
   gap: 12px;
   align-items: stretch;
   padding: 16px;
@@ -546,6 +556,13 @@ input[type="checkbox"] {
   background: linear-gradient(135deg, #ffe84d 0%, #00f6ff 48%, #ff2bd6 100%);
   box-shadow: 0 0 24px rgba(0, 246, 255, 0.36);
   text-transform: uppercase;
+}
+
+.secondary-danger {
+  color: #ffb4d6;
+  background: rgba(255, 43, 92, 0.14);
+  border-color: rgba(255, 95, 132, 0.62);
+  box-shadow: inset 0 0 18px rgba(255, 43, 92, 0.08);
 }
 
 .status-list {

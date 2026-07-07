@@ -3,6 +3,8 @@ import cors from 'cors';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { scrapeEbayFeedback } from './scraper.js';
+import { applyFeedbackHistory, resetFeedbackHistory } from './feedbackStore.js';
+import { enrichRowsWithProducts } from './productCatalog.js';
 
 const app = express();
 const port = process.env.PORT || 4141;
@@ -17,7 +19,15 @@ app.get('/api/health', (_req, res) => {
 });
 
 app.post('/api/scrape', async (req, res) => {
-  const { url, mode = 'auto', maxItems = 25, maxPages = 8, allowManualVerification = true } = req.body ?? {};
+  const {
+    url,
+    mode = 'auto',
+    maxItems = 25,
+    maxPages = 8,
+    allowManualVerification = true,
+    useSavedSession = false,
+    scanMode = 'full'
+  } = req.body ?? {};
 
   if (!url || typeof url !== 'string') {
     res.status(400).json({ error: 'Paste an eBay listing or store URL.' });
@@ -30,13 +40,28 @@ app.post('/api/scrape', async (req, res) => {
       mode,
       maxItems: clampNumber(maxItems, 1, 250, 25),
       maxPages: clampNumber(maxPages, 1, 100, 8),
-      allowManualVerification: Boolean(allowManualVerification)
+      allowManualVerification: Boolean(allowManualVerification),
+      useSavedSession: Boolean(useSavedSession)
     });
+    const history = await applyFeedbackHistory(result.rows, { scanMode });
+    result.rows = await enrichRowsWithProducts(history.rows);
+    result.history = history.stats;
     res.json(result);
   } catch (error) {
     res.status(500).json({
       error: error.message || 'The scrape failed.',
       details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
+  }
+});
+
+app.post('/api/feedback-history/reset', async (_req, res) => {
+  try {
+    const stats = await resetFeedbackHistory();
+    res.json(stats);
+  } catch (error) {
+    res.status(500).json({
+      error: error.message || 'The incremental history reset failed.'
     });
   }
 });

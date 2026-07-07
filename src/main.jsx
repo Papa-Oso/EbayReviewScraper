@@ -8,6 +8,7 @@ import {
   FileSpreadsheet,
   Loader2,
   Music2,
+  RotateCcw,
   Search,
   Store,
   Tag,
@@ -17,30 +18,29 @@ import {
 import './styles.css';
 
 const columns = [
-  'feedback_id',
-  'source_item_id',
-  'source_item_title',
-  'seller_username',
-  'matched_item_id',
-  'matched_item_title',
-  'match_type',
+  'title',
+  'body',
   'rating',
-  'buyer_username',
-  'feedback_date',
-  'feedback_text',
-  'source_listing_url',
-  'matched_item_url',
-  'feedback_profile_url'
+  'review_date',
+  'reviewer_name',
+  'reviewer_email',
+  'product_id',
+  'product_handle',
+  'reply',
+  'picture_urls'
 ];
 
 function App() {
-  const [url, setUrl] = useState('');
+  const [url, setUrl] = useState('https://www.ebay.com/usr/joshswidgets');
   const [mode, setMode] = useState('auto');
   const [maxItems, setMaxItems] = useState(25);
-  const [maxPages, setMaxPages] = useState(8);
+  const [maxPages, setMaxPages] = useState(100);
+  const [scanMode, setScanMode] = useState('incremental');
   const [allowManualVerification, setAllowManualVerification] = useState(true);
+  const [useSavedSession, setUseSavedSession] = useState(true);
   const [loading, setLoading] = useState(false);
-  const [muted, setMuted] = useState(false);
+  const [resetLoading, setResetLoading] = useState(false);
+  const [muted, setMuted] = useState(true);
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
   const [log, setLog] = useState([]);
@@ -67,15 +67,23 @@ function App() {
     setError('');
     setResult(null);
     setLog([
-      allowManualVerification ? 'Starting visible browser session' : 'Starting background browser session',
-      allowManualVerification ? 'Solve any eBay verification in Chromium' : 'Reading eBay page structure'
+      useSavedSession
+        ? 'Starting saved eBay browser session'
+        : allowManualVerification
+          ? 'Starting visible browser session'
+          : 'Starting background browser session',
+      useSavedSession
+        ? 'Checking eBay login before scraping'
+        : allowManualVerification
+          ? 'Solve any eBay verification in Chromium'
+          : 'Reading eBay page structure'
     ]);
 
     try {
       const response = await fetch('/api/scrape', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url, mode, maxItems, maxPages, allowManualVerification })
+        body: JSON.stringify({ url, mode, maxItems, maxPages, scanMode, allowManualVerification, useSavedSession })
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || 'Scrape failed.');
@@ -83,13 +91,47 @@ function App() {
       setLog((entries) => [
         ...entries,
         `Resolved ${payload.listings.length} listing${payload.listings.length === 1 ? '' : 's'}`,
-        `Collected ${payload.rows.length} feedback row${payload.rows.length === 1 ? '' : 's'}`
-      ]);
+        `Collected ${payload.rows.length} feedback row${payload.rows.length === 1 ? '' : 's'}`,
+        payload.history
+          ? `${payload.history.new_rows} new, ${payload.history.skipped_existing_rows} already scanned`
+          : ''
+      ].filter(Boolean));
     } catch (caught) {
       setError(caught.message);
       setLog((entries) => [...entries, 'Stopped before export']);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function resetIncrementalHistory() {
+    const confirmed = window.confirm('Reset incremental scan history? This clears scanned_feedback so the next incremental scan treats every feedback row as new.');
+    if (!confirmed) return;
+
+    setResetLoading(true);
+    setError('');
+
+    try {
+      const response = await fetch('/api/feedback-history/reset', { method: 'POST' });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || 'Incremental reset failed.');
+
+      setResult((current) => current ? {
+        ...current,
+        history: {
+          ...current.history,
+          new_rows: 0,
+          skipped_existing_rows: 0
+        }
+      } : current);
+      setLog((entries) => [
+        ...entries,
+        `Reset incremental history: removed ${payload.deleted_rows} scanned row${payload.deleted_rows === 1 ? '' : 's'}`
+      ]);
+    } catch (caught) {
+      setError(caught.message);
+    } finally {
+      setResetLoading(false);
     }
   }
 
@@ -194,13 +236,55 @@ function App() {
               </label>
             </div>
 
+            <div className="segmented" aria-label="Scan history mode">
+              {[
+                ['full', CheckCircle2, 'Full'],
+                ['incremental', Search, 'Incremental']
+              ].map(([value, Icon, label]) => (
+                <button
+                  type="button"
+                  key={value}
+                  className={scanMode === value ? 'active' : ''}
+                  onClick={() => setScanMode(value)}
+                  title={label}
+                >
+                  <Icon size={16} aria-hidden="true" />
+                  <span>{label}</span>
+                </button>
+              ))}
+            </div>
+
+            <button
+              type="button"
+              className="secondary-danger"
+              onClick={resetIncrementalHistory}
+              disabled={loading || resetLoading}
+              title="Reset incremental scan history"
+            >
+              {resetLoading ? <Loader2 className="spin" size={18} /> : <RotateCcw size={18} />}
+              <span>{resetLoading ? 'Resetting history' : 'Reset incremental history'}</span>
+            </button>
+
             <label className="check-row">
               <input
                 type="checkbox"
                 checked={allowManualVerification}
                 onChange={(event) => setAllowManualVerification(event.target.checked)}
+                disabled={useSavedSession}
               />
               <span>Open browser for eBay verification</span>
+            </label>
+
+            <label className="check-row">
+              <input
+                type="checkbox"
+                checked={useSavedSession}
+                onChange={(event) => {
+                  setUseSavedSession(event.target.checked);
+                  if (event.target.checked) setAllowManualVerification(true);
+                }}
+              />
+              <span>Use saved eBay login session</span>
             </label>
 
             <button className="primary" disabled={loading}>
@@ -233,7 +317,8 @@ function App() {
           <div className="summary-band">
             <Metric label="Rows" value={result?.rows?.length ?? 0} />
             <Metric label="Exact item matches" value={exactCount} />
-            <Metric label="Listings" value={result?.listings?.length ?? 0} />
+            <Metric label="New rows" value={result?.history?.new_rows ?? 0} />
+            <Metric label="Skipped" value={result?.history?.skipped_existing_rows ?? 0} />
             <button className="export" onClick={downloadCsv} disabled={!result?.rows?.length}>
               <Download size={18} aria-hidden="true" />
               <span>CSV</span>
@@ -256,6 +341,7 @@ function App() {
                     <th>Seller</th>
                     <th>Match</th>
                     <th>Rating</th>
+                    <th>Stars</th>
                     <th>Date</th>
                     <th>Feedback</th>
                     <th>Link</th>
@@ -271,6 +357,7 @@ function App() {
                       <td>{row.seller_username}</td>
                       <td><Badge value={row.match_type} /></td>
                       <td>{row.rating || 'Unknown'}</td>
+                      <td>{row.star_rating === '' || row.star_rating == null ? 'Unknown' : Number(row.star_rating).toFixed(0)}</td>
                       <td>{row.feedback_date || 'Unknown'}</td>
                       <td>{row.feedback_text}</td>
                       <td>
@@ -316,7 +403,44 @@ function toCsv(rows) {
     const text = String(value ?? '');
     return /[",\n\r]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
   };
-  return [columns.join(','), ...rows.map((row) => columns.map((column) => escape(row[column])).join(','))].join('\n');
+  return [
+    columns.join(','),
+    ...rows.map((row) => columns.map((column) => escape(directImportValue(row, column))).join(','))
+  ].join('\n');
+}
+
+function directImportValue(row, column) {
+  const values = {
+    title: reviewTitle(row.feedback_text),
+    body: row.feedback_text || '',
+    rating: row.star_rating || '',
+    review_date: reviewDate(row.feedback_date),
+    reviewer_name: row.buyer_username || 'eBay buyer',
+    reviewer_email: '',
+    product_id: '',
+    product_handle: row.product_handle || row.product_sku || '',
+    reply: '',
+    picture_urls: row.matched_item_image_url || row.source_item_image_url || ''
+  };
+
+  return values[column];
+}
+
+function reviewTitle(text = '') {
+  const firstSentence = String(text).split(/[.!?]/)[0]?.trim();
+  if (!firstSentence) return 'eBay Review';
+  return firstSentence.length > 80 ? `${firstSentence.slice(0, 77)}...` : firstSentence;
+}
+
+function reviewDate(value = '') {
+  if (/^\d{4}-\d{2}-\d{2}/.test(value)) return value;
+  const date = new Date();
+
+  if (/past\s+6\s+months/i.test(value)) date.setMonth(date.getMonth() - 6);
+  else if (/past\s+month/i.test(value)) date.setMonth(date.getMonth() - 1);
+  else if (/past\s+year/i.test(value)) date.setFullYear(date.getFullYear() - 1);
+
+  return date.toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, ' UTC');
 }
 
 function csvFilename(result) {

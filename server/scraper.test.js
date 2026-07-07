@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import * as cheerio from 'cheerio';
 import { scraperInternals } from './scraper.js';
 
 test('test runner is wired', () => {
@@ -95,4 +96,91 @@ test('listing page feedback cards are exported as item rows', () => {
   assert.equal(rows[0].match_type, 'listing-page');
   assert.equal(rows[0].matched_item_id, '324744573584');
   assert.equal(rows[1].feedback_text, 'Exactly as described');
+});
+
+test('listing page feedback parser ignores rating summaries', () => {
+  const html = `
+    <section>
+      <div class="card__feedback">Detailed seller ratings Average for the last 12 monthsAccurate description5.0Reasonable shipping cost5.0Shipping speed5.0Communication5.0</div>
+      <div class="card__feedback" aria-label="Positive feedback rating"></div>
+      <div class="card__feedback">
+        <span class="card__comment">Shipped fast and fit perfectly.</span>
+        <a href="/usr/z3buyer">z3buyer</a>
+        <a href="/itm/324744573584">BMW Z3 and M Roadster Sun Visor Delete Block off / Blank Plates (2x, Pair)</a>
+      </div>
+    </section>
+  `;
+
+  const rows = scraperInternals.parseListingPageFeedbackRows(html, {
+    url: 'https://www.ebay.com/itm/324744573584',
+    itemId: '324744573584',
+    title: 'BMW Z3 and M Roadster Sun Visor Delete Block off / Blank Plates (2x, Pair)',
+    sellerUsername: 'joshswidgets',
+    feedbackUrl: 'https://feedback.ebay.com/fdbk/feedback_profile/joshswidgets'
+  });
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].feedback_text, 'Shipped fast and fit perfectly.');
+});
+
+test('listing page feedback rows keep product image urls', () => {
+  const rows = scraperInternals.parseListingPageFeedbackRows(
+    `
+      <section>
+        <div class="card__feedback">
+          <span class="card__comment">Fits exactly as expected.</span>
+          <a href="/usr/z3buyer">z3buyer</a>
+          <a href="/itm/324744573584">BMW Z3 and M Roadster Sun Visor Delete Block off / Blank Plates (2x, Pair)</a>
+        </div>
+      </section>
+    `,
+    {
+      url: 'https://www.ebay.com/itm/324744573584',
+      itemId: '324744573584',
+      title: 'BMW Z3 and M Roadster Sun Visor Delete Block off / Blank Plates (2x, Pair)',
+      imageUrl: 'https://i.ebayimg.com/images/g/example/s-l1600.jpg',
+      sellerUsername: 'joshswidgets',
+      feedbackUrl: 'https://feedback.ebay.com/fdbk/feedback_profile/joshswidgets'
+    }
+  );
+
+  assert.equal(rows[0].source_item_image_url, 'https://i.ebayimg.com/images/g/example/s-l1600.jpg');
+  assert.equal(rows[0].matched_item_image_url, 'https://i.ebayimg.com/images/g/example/s-l1600.jpg');
+});
+
+test('listing image url is read from listing metadata', () => {
+  const $ = cheerio.load('<meta property="og:image" content="https://i.ebayimg.com/images/g/example/s-l1600.jpg">');
+
+  assert.equal(
+    scraperInternals.extractListingImageUrl($, 'https://www.ebay.com/itm/324744573584'),
+    'https://i.ebayimg.com/images/g/example/s-l1600.jpg'
+  );
+});
+
+test('saved sessions use a persistent visible browser', () => {
+  assert.equal(
+    scraperInternals.browserLaunchMode({ allowManualVerification: false, useSavedSession: true }),
+    'persistent-headed'
+  );
+  assert.equal(
+    scraperInternals.browserLaunchMode({ allowManualVerification: false, useSavedSession: false }),
+    'headless'
+  );
+});
+
+test('logged out ebay pages are detected before scraping', () => {
+  assert.equal(
+    scraperInternals.isLoggedOutEbayPage('<body>Hi! Sign in or register</body>', 'https://www.ebay.com/'),
+    true
+  );
+  assert.equal(
+    scraperInternals.isLoggedOutEbayPage('<body>My eBay Summary</body>', 'https://www.ebay.com/'),
+    false
+  );
+});
+
+test('aborted ebay navigations are retryable and readable', () => {
+  const error = new Error('page.goto: net::ERR_ABORTED at https://feedback.ebay.com/fdbk/feedback_profile/joshswidgets');
+  assert.equal(scraperInternals.isRetryableNavigationError(error), true);
+  assert.match(scraperInternals.normalizeScrapeError(error).message, /aborted a page navigation/);
 });

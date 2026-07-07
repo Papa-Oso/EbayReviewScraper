@@ -1,31 +1,35 @@
 import { chromium } from 'playwright';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import * as cheerio from 'cheerio';
 
 const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
   '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const rootDir = path.resolve(__dirname, '..');
+const browserProfileDir = path.join(rootDir, 'data', 'browser-profile');
 
 export async function scrapeEbayFeedback({
   inputUrl,
   mode = 'auto',
   maxItems = 25,
   maxPages = 8,
-  allowManualVerification = true
+  allowManualVerification = true,
+  useSavedSession = false
 }) {
-  const browser = await chromium.launch({ headless: !allowManualVerification });
-  const context = await browser.newContext({
-    userAgent: USER_AGENT,
-    locale: 'en-US',
-    viewport: { width: 1365, height: 900 }
-  });
-  const page = await context.newPage();
+  const { browser, context, page } = await createBrowserSession({ allowManualVerification, useSavedSession });
   const warnings = [];
 
   try {
+    if (useSavedSession) {
+      await ensureSavedSessionLogin(page, warnings);
+    }
+
     const normalizedUrl = normalizeUrl(inputUrl);
     const urlMode = inferMode(normalizedUrl);
     const inferredMode = urlMode === 'seller' ? 'seller' : mode === 'auto' ? urlMode : mode;
-    const scrapeOptions = { allowManualVerification, warnings };
+    const scrapeOptions = { allowManualVerification, useSavedSession, warnings };
     const listings =
       inferredMode === 'seller'
         ? [await readSellerProfileDetails(page, normalizedUrl, scrapeOptions)]
@@ -37,7 +41,12 @@ export async function scrapeEbayFeedback({
     for (const listing of listings) {
       if (listing.embeddedFeedbackRows?.length) {
         rows.push(...listing.embeddedFeedbackRows);
-        if (inferredMode === 'listing') continue;
+        if (inferredMode === 'listing' || inferredMode === 'store') continue;
+      }
+
+      if (inferredMode === 'store') {
+        warnings.push(`No item-specific feedback was visible for ${listing.url}.`);
+        continue;
       }
 
       if (!listing.sellerUsername) {
@@ -60,8 +69,90 @@ export async function scrapeEbayFeedback({
   } catch (error) {
     throw normalizeScrapeError(error);
   } finally {
-    await browser.close().catch(() => {});
+    await context.close().catch(() => {});
+    await browser?.close().catch(() => {});
   }
+}
+
+async function createBrowserSession({ allowManualVerification, useSavedSession }) {
+  const launchMode = browserLaunchMode({ allowManualVerification, useSavedSession });
+  const contextOptions = {
+    userAgent: USER_AGENT,
+    locale: 'en-US',
+    viewport: { width: 1365, height: 900 }
+  };
+
+  if (launchMode === 'persistent-headed') {
+    const context = await chromium.launchPersistentContext(browserProfileDir, {
+      ...contextOptions,
+      headless: false
+    });
+    const page = context.pages()[0] || (await context.newPage());
+    return { browser: null, context, page };
+  }
+
+  const browser = await chromium.launch({ headless: launchMode === 'headless' });
+  const context = await browser.newContext(contextOptions);
+  const page = await context.newPage();
+  return { browser, context, page };
+}
+
+function browserLaunchMode({ allowManualVerification, useSavedSession }) {
+  if (useSavedSession) return 'persistent-headed';
+  return allowManualVerification ? 'headed' : 'headless';
+}
+
+async function ensureSavedSessionLogin(page, warnings) {
+  await gotoBasic(page, 'https://www.ebay.com/');
+  let html = await readStableContent(page);
+  html = await handleEbayErrorPage(page, html, 'https://www.ebay.com/', {
+    allowManualVerification: true,
+    warnings
+  });
+
+  if (!isLoggedOutEbayPage(html, page.url())) return;
+
+  warnings.push('Saved eBay session was not logged in, so Chromium opened the eBay sign-in page.');
+  await gotoBasic(page, 'https://signin.ebay.com/ws/eBayISAPI.dll?SignIn');
+
+  try {
+    await page.waitForFunction(
+      () => {
+        const text = document.body?.innerText || '';
+        const url = location.href;
+        const loggedOut =
+          /signin\.ebay\./i.test(url) ||
+          /\bHi!\s*Sign in\b/i.test(text) ||
+          /\bSign in or register\b/i.test(text) ||
+          /\bEmail or username\b/i.test(text);
+        return !loggedOut;
+      },
+      undefined,
+      { timeout: 10 * 60 * 1000 }
+    );
+    await page.waitForLoadState('domcontentloaded', { timeout: 45000 }).catch(() => {});
+    await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => {});
+    await page.waitForTimeout(1000);
+  } catch {
+    throw new Error('Timed out waiting for eBay login. Log in inside the Chromium window, then run the scrape again.');
+  }
+}
+
+async function gotoBasic(page, url) {
+  await navigateWithRetry(page, url);
+  await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => {});
+  await page.waitForTimeout(1000);
+}
+
+function isLoggedOutEbayPage(html = '', url = '') {
+  const $ = cheerio.load(html);
+  const text = cleanText($('body').text());
+  return (
+    /signin\.ebay\./i.test(url) ||
+    /\bHi!\s*Sign in\b/i.test(text) ||
+    /\bSign in or register\b/i.test(text) ||
+    /\bEmail or username\b/i.test(text)
+  );
 }
 
 async function collectStoreListings(page, storeUrl, maxItems, options) {
@@ -148,6 +239,7 @@ async function readListingDetails(page, listingUrl, options) {
     url: listingUrl,
     itemId,
     title,
+    imageUrl: extractListingImageUrl($, listingUrl),
     sellerUsername,
     feedbackUrl: sellerUsername ? feedbackProfileUrl(sellerUsername) : null
   };
@@ -220,11 +312,13 @@ function parseFeedbackRows(html, listing) {
       source_listing_url: listing.url,
       source_item_id: listing.itemId || '',
       source_item_title: listing.title || '',
+      source_item_image_url: listing.imageUrl || '',
       seller_username: listing.sellerUsername || '',
       feedback_profile_url: listing.feedbackUrl || '',
       matched_item_id: itemId || '',
       matched_item_title: itemText || '',
       matched_item_url: itemUrl || '',
+      matched_item_image_url: itemId && itemId === listing.itemId ? listing.imageUrl || '' : '',
       match_type: matchType,
       rating,
       buyer_username: buyer,
@@ -260,7 +354,14 @@ function parseListingPageFeedbackRows(html, listing) {
     );
     const itemId = extractItemId(rowText) || listing.itemId || '';
 
-    if (!comment || isPageChrome(rowText) || isPageChrome(comment) || isFeedbackLeftForSeller(rowText)) return;
+    if (
+      !comment ||
+      isPageChrome(rowText) ||
+      isPageChrome(comment) ||
+      isNonReviewFeedbackText(comment) ||
+      isNonReviewFeedbackText(rowText) ||
+      isFeedbackLeftForSeller(rowText)
+    ) return;
     if (!looksLikeFeedback(`${comment} ${rowText}`) && itemId !== listing.itemId) return;
     if (/Seller feedback|This item|All items|See all feedback/i.test(comment) && comment.length < 80) return;
 
@@ -272,11 +373,13 @@ function parseListingPageFeedbackRows(html, listing) {
       source_listing_url: listing.url,
       source_item_id: listing.itemId || '',
       source_item_title: listing.title || '',
+      source_item_image_url: listing.imageUrl || '',
       seller_username: listing.sellerUsername || '',
       feedback_profile_url: listing.feedbackUrl || '',
       matched_item_id: itemId,
       matched_item_title: listing.title || '',
       matched_item_url: listing.url,
+      matched_item_image_url: listing.imageUrl || '',
       match_type: 'listing-page',
       rating: normalizeRating(rowText),
       buyer_username: cleanText(container.find('a[href*="/usr/"]').last().text()),
@@ -306,7 +409,7 @@ function parseFeedbackTableRows($, listing) {
         feedbackCell.find('.card__comment').first().text() ||
         feedbackCell.find('.card__feedback').first().text()
     );
-    if (!comment || isPageChrome(comment)) return;
+    if (!comment || isPageChrome(comment) || isNonReviewFeedbackText(comment)) return;
 
     const itemText = cleanText(feedbackCell.find('.card__item').first().text());
     const itemLink = feedbackCell.find('a[href*="/itm/"]').first();
@@ -324,11 +427,13 @@ function parseFeedbackTableRows($, listing) {
       source_listing_url: listing.url,
       source_item_id: listing.itemId || '',
       source_item_title: listing.title || '',
+      source_item_image_url: listing.imageUrl || '',
       seller_username: listing.sellerUsername || '',
       feedback_profile_url: listing.feedbackUrl || '',
       matched_item_id: itemId || '',
       matched_item_title: itemText || '',
       matched_item_url: itemUrl || '',
+      matched_item_image_url: itemId && itemId === listing.itemId ? listing.imageUrl || '' : '',
       match_type: matchType,
       rating,
       buyer_username: normalizeFeedbackFrom(fromText),
@@ -345,18 +450,26 @@ function parseFallbackFeedback(html, listing) {
   const textBlocks = $('li, tr, article, div')
     .toArray()
     .map((element) => cleanText($(element).text()))
-    .filter((text) => text.length > 35 && !isPageChrome(text) && !isFeedbackLeftForSeller(text) && looksLikeFeedback(text))
+    .filter((text) => (
+      text.length > 35 &&
+      !isPageChrome(text) &&
+      !isNonReviewFeedbackText(text) &&
+      !isFeedbackLeftForSeller(text) &&
+      looksLikeFeedback(text)
+    ))
     .slice(0, 80);
 
   return [...new Set(textBlocks)].map((text) => ({
     source_listing_url: listing.url,
     source_item_id: listing.itemId || '',
     source_item_title: listing.title || '',
+    source_item_image_url: listing.imageUrl || '',
     seller_username: listing.sellerUsername || '',
     feedback_profile_url: listing.feedbackUrl || '',
     matched_item_id: extractItemId(text) || '',
     matched_item_title: '',
     matched_item_url: '',
+    matched_item_image_url: '',
     match_type: inferMatchType({ listing, rowText: text }),
     rating: inferRating(text),
     buyer_username: '',
@@ -388,6 +501,19 @@ function extractSellerUsername($, html) {
     html.match(/"mbgLink"\s*:\s*"[^"]*\/usr\/([^/?#"]+)/i) ||
     html.match(/\/usr\/([^/?#"]+)/i);
   return textMatch ? decodeURIComponent(textMatch[1]) : '';
+}
+
+function extractListingImageUrl($, baseUrl = '') {
+  const candidates = [
+    $('meta[property="og:image"]').attr('content'),
+    $('meta[name="twitter:image"]').attr('content'),
+    $('meta[property="twitter:image"]').attr('content'),
+    $('img#icImg').attr('src'),
+    $('img[data-testid*="ux-image"]').attr('src'),
+    $('img[src*="i.ebayimg.com"]').first().attr('src')
+  ];
+
+  return candidates.map((candidate) => absoluteUrl(candidate, baseUrl)).find(Boolean) || '';
 }
 
 function extractListingUrls(html, baseUrl) {
@@ -448,12 +574,36 @@ function feedbackPageUrl(baseUrl, pageNumber) {
 }
 
 async function goto(page, url, options) {
-  await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 });
+  await navigateWithRetry(page, url);
   await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => {});
   await page.waitForTimeout(1000);
   await handleManualVerification(page, options);
   await page.waitForLoadState('domcontentloaded', { timeout: 15000 }).catch(() => {});
   await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => {});
+}
+
+async function navigateWithRetry(page, url) {
+  let lastError;
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 });
+      return;
+    } catch (error) {
+      lastError = error;
+      if (!isRetryableNavigationError(error)) throw error;
+      await page.waitForTimeout(1200 + attempt * 1000).catch(() => {});
+    }
+  }
+
+  throw new Error(
+    `eBay aborted navigation to ${url}. This is usually a temporary redirect/login timing issue. Try the scrape again, and keep the saved-session Chromium window open.`
+  );
+}
+
+function isRetryableNavigationError(error) {
+  const message = String(error?.message || error || '');
+  return /net::ERR_ABORTED|Navigation failed because page was closed|page is navigating/i.test(message);
 }
 
 async function readStableContent(page) {
@@ -591,6 +741,17 @@ function isFeedbackLeftForSeller(text = '') {
   return /^Seller:/i.test(cleanText(text));
 }
 
+function isNonReviewFeedbackText(text = '') {
+  const normalized = cleanText(text);
+  return (
+    /^positive feedback rating$/i.test(normalized) ||
+    /^neutral feedback rating$/i.test(normalized) ||
+    /^negative feedback rating$/i.test(normalized) ||
+    /Detailed seller ratings\s+Average for the last 12 months/i.test(normalized) ||
+    /Accurate description\s*\d(?:\.\d)?\s*Reasonable shipping cost/i.test(normalized)
+  );
+}
+
 function isPageChrome(text = '') {
   const normalized = cleanText(text);
   return (
@@ -688,6 +849,12 @@ function normalizeScrapeError(error) {
     );
   }
 
+  if (/net::ERR_ABORTED/i.test(message)) {
+    return new Error(
+      'eBay aborted a page navigation, usually because the saved login session was still redirecting. Run the scrape again and keep the Chromium window open.'
+    );
+  }
+
   return error;
 }
 
@@ -762,5 +929,9 @@ export const scraperInternals = {
   feedbackPageUrl,
   extractFeedbackTotalPages,
   parseListingPageFeedbackRows,
+  extractListingImageUrl,
+  browserLaunchMode,
+  isLoggedOutEbayPage,
+  isRetryableNavigationError,
   normalizeScrapeError
 };
