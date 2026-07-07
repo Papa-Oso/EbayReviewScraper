@@ -51,7 +51,61 @@ export function findSkuForTitle(catalog, title = '') {
   const contains = catalog.find((record) => {
     return normalized.includes(record.normalizedTitle) || record.normalizedTitle.includes(normalized);
   });
-  return contains?.sku || '';
+  if (contains) return contains.sku;
+
+  const fuzzy = bestFuzzyTitleMatch(catalog, normalized);
+  return fuzzy?.sku || '';
+}
+
+function bestFuzzyTitleMatch(catalog, normalizedTitle) {
+  let bestMatch = null;
+
+  for (const record of catalog) {
+    const score = titleSimilarity(normalizedTitle, record.normalizedTitle);
+    if (!bestMatch || score > bestMatch.score) {
+      bestMatch = { ...record, score };
+    }
+  }
+
+  return bestMatch?.score >= 0.72 ? bestMatch : null;
+}
+
+function titleSimilarity(left, right) {
+  const tokenScore = diceCoefficient(tokensFor(left), tokensFor(right));
+  const bigramScore = diceCoefficient(bigramsFor(left), bigramsFor(right));
+  return tokenScore * 0.55 + bigramScore * 0.45;
+}
+
+function diceCoefficient(left, right) {
+  if (!left.length || !right.length) return 0;
+
+  const counts = new Map();
+  for (const value of left) counts.set(value, (counts.get(value) || 0) + 1);
+
+  let overlap = 0;
+  for (const value of right) {
+    const count = counts.get(value) || 0;
+    if (!count) continue;
+    counts.set(value, count - 1);
+    overlap += 1;
+  }
+
+  return (2 * overlap) / (left.length + right.length);
+}
+
+function tokensFor(value = '') {
+  return value.split(' ').filter(Boolean);
+}
+
+function bigramsFor(value = '') {
+  const compact = value.replace(/\s+/g, ' ');
+  if (compact.length < 2) return compact ? [compact] : [];
+
+  const bigrams = [];
+  for (let index = 0; index < compact.length - 1; index += 1) {
+    bigrams.push(compact.slice(index, index + 2));
+  }
+  return bigrams;
 }
 
 export function parseCsv(csv) {

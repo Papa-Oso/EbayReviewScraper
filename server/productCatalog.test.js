@@ -38,6 +38,38 @@ test('bmw z3 visor title maps to shopify product handle', () => {
   assert.equal(slugForHandle(sku), 'jw-z3-visor-001');
 });
 
+test('product sku fuzzy matches small ebay title differences', () => {
+  const catalog = [
+    {
+      title: 'Scorpion Helmet Adapter Mount for Cardo Packtalk Edge / Neo / Pro / Custom',
+      normalizedTitle: 'scorpion helmet adapter mount for cardo packtalk edge neo pro custom',
+      sku: 'JW-SCORPION-EDGE-001'
+    },
+    {
+      title: 'Scorpion Helmet Adapter Mount for Cardo Freecom 2X / 4X, Spirit, or Spirit HD',
+      normalizedTitle: 'scorpion helmet adapter mount for cardo freecom 2x 4x spirit or spirit hd',
+      sku: 'JW-SCORPION-FREECOM-001'
+    }
+  ];
+
+  assert.equal(
+    findSkuForTitle(catalog, 'Scorpion helmet adapter mount Cardo Freedom 2X 4X Spirit HD T520'),
+    'JW-SCORPION-FREECOM-001'
+  );
+});
+
+test('product sku fuzzy match does not guess unrelated products', () => {
+  const catalog = [
+    {
+      title: 'HJC Helmet Adapter Mount for Cardo Packtalk Edge / Neo / Pro / Custom',
+      normalizedTitle: 'hjc helmet adapter mount for cardo packtalk edge neo pro custom',
+      sku: 'JW-HJC-EDGE-001'
+    }
+  ];
+
+  assert.equal(findSkuForTitle(catalog, 'Universal motorcycle phone mount with USB charger'), '');
+});
+
 test('sku handles are import safe', () => {
   assert.equal(slugForHandle('JW-HJC-EDGE-001'), 'jw-hjc-edge-001');
 });
