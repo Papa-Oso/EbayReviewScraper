@@ -43,6 +43,10 @@ app.post('/api/scrape', async (req, res) => {
       allowManualVerification: Boolean(allowManualVerification),
       useSavedSession: Boolean(useSavedSession)
     });
+
+    // Scraped rows are deliberately processed in this order:
+    // 1. history filtering decides whether rows are new enough to export,
+    // 2. product enrichment maps the surviving rows to Shopify handles.
     const history = await applyFeedbackHistory(result.rows, { scanMode });
     result.rows = await enrichRowsWithProducts(history.rows);
     result.history = history.stats;

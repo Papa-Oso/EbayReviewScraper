@@ -10,13 +10,13 @@ import {
   Music2,
   RotateCcw,
   Search,
-  Store,
-  Tag,
   Volume2,
   VolumeX
 } from 'lucide-react';
 import './styles.css';
 
+// Shopify review import columns. Keep this list aligned with
+// data/direct_import_sample.csv and docs/CSV_EXPORT.md.
 const columns = [
   'title',
   'body',
@@ -34,7 +34,6 @@ const defaultEbayUrl = import.meta.env.VITE_DEFAULT_EBAY_URL || '';
 
 function App() {
   const [url, setUrl] = useState(defaultEbayUrl);
-  const [mode, setMode] = useState('auto');
   const [maxItems, setMaxItems] = useState(25);
   const [maxPages, setMaxPages] = useState(100);
   const [scanMode, setScanMode] = useState('incremental');
@@ -85,7 +84,7 @@ function App() {
       const response = await fetch('/api/scrape', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url, mode, maxItems, maxPages, scanMode, allowManualVerification, useSavedSession })
+        body: JSON.stringify({ url, mode: 'auto', maxItems, maxPages, scanMode, allowManualVerification, useSavedSession })
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || 'Scrape failed.');
@@ -186,113 +185,91 @@ function App() {
           </div>
 
           <form onSubmit={runScrape} className="form">
-            <label className="field">
-              <span>eBay URL</span>
-              <input
-                value={url}
-                onChange={(event) => setUrl(event.target.value)}
-                placeholder="https://www.ebay.com/itm/..."
-                required
-              />
-            </label>
-
-            <div className="segmented" aria-label="Scrape mode">
-              {[
-                ['auto', Search, 'Auto'],
-                ['listing', Tag, 'Listing'],
-                ['store', Store, 'Store']
-              ].map(([value, Icon, label]) => (
-                <button
-                  type="button"
-                  key={value}
-                  className={mode === value ? 'active' : ''}
-                  onClick={() => setMode(value)}
-                  title={label}
-                >
-                  <Icon size={16} aria-hidden="true" />
-                  <span>{label}</span>
-                </button>
-              ))}
-            </div>
-
-            <div className="range-grid">
-              <label className="field">
-                <span>Max items</span>
+            <div className="form-row primary-row">
+              <label className="field url-field">
+                <span>eBay URL</span>
                 <input
-                  type="number"
-                  min="1"
-                  max="250"
-                  value={maxItems}
-                  onChange={(event) => setMaxItems(event.target.value)}
+                  value={url}
+                  onChange={(event) => setUrl(event.target.value)}
+                  placeholder="https://www.ebay.com/itm/..."
+                  required
                 />
               </label>
-              <label className="field">
-                <span>Feedback pages</span>
+
+              <button className="primary" disabled={loading}>
+                {loading ? <Loader2 className="spin" size={18} /> : <Search size={18} />}
+                <span>{loading ? 'Scraping' : 'Scrape feedback'}</span>
+              </button>
+            </div>
+
+            <div className="form-row options-row">
+              <div className="range-grid">
+                <label className="field compact-field">
+                  <span>Max items</span>
+                  <input
+                    type="number"
+                    min="1"
+                    max="250"
+                    value={maxItems}
+                    onChange={(event) => setMaxItems(event.target.value)}
+                  />
+                </label>
+                <label className="field compact-field">
+                  <span>Feedback pages</span>
+                  <input
+                    type="number"
+                    min="1"
+                    max="100"
+                    value={maxPages}
+                    onChange={(event) => setMaxPages(event.target.value)}
+                  />
+                </label>
+              </div>
+
+              <div className="control-group">
+                <span className="group-label">Scan history</span>
+                <div className="segmented two-part" aria-label="Scan history mode">
+                  {[
+                    ['full', CheckCircle2, 'Full'],
+                    ['incremental', Search, 'Incremental']
+                  ].map(([value, Icon, label]) => (
+                    <button
+                      type="button"
+                      key={value}
+                      className={scanMode === value ? 'active' : ''}
+                      onClick={() => setScanMode(value)}
+                      title={label}
+                    >
+                      <Icon size={16} aria-hidden="true" />
+                      <span>{label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <label className="check-row session-toggle">
                 <input
-                  type="number"
-                  min="1"
-                  max="100"
-                  value={maxPages}
-                  onChange={(event) => setMaxPages(event.target.value)}
+                  type="checkbox"
+                  checked={useSavedSession}
+                  onChange={(event) => {
+                    setUseSavedSession(event.target.checked);
+                    if (event.target.checked) setAllowManualVerification(true);
+                  }}
                 />
+                <span>Use saved eBay login session</span>
               </label>
+
+              <button
+                type="button"
+                className="secondary-danger"
+                onClick={resetIncrementalHistory}
+                disabled={loading || resetLoading}
+                title="Reset incremental scan history"
+              >
+                {resetLoading ? <Loader2 className="spin" size={18} /> : <RotateCcw size={18} />}
+                <span>{resetLoading ? 'Resetting history' : 'Reset incremental history'}</span>
+              </button>
             </div>
-
-            <div className="segmented" aria-label="Scan history mode">
-              {[
-                ['full', CheckCircle2, 'Full'],
-                ['incremental', Search, 'Incremental']
-              ].map(([value, Icon, label]) => (
-                <button
-                  type="button"
-                  key={value}
-                  className={scanMode === value ? 'active' : ''}
-                  onClick={() => setScanMode(value)}
-                  title={label}
-                >
-                  <Icon size={16} aria-hidden="true" />
-                  <span>{label}</span>
-                </button>
-              ))}
-            </div>
-
-            <button
-              type="button"
-              className="secondary-danger"
-              onClick={resetIncrementalHistory}
-              disabled={loading || resetLoading}
-              title="Reset incremental scan history"
-            >
-              {resetLoading ? <Loader2 className="spin" size={18} /> : <RotateCcw size={18} />}
-              <span>{resetLoading ? 'Resetting history' : 'Reset incremental history'}</span>
-            </button>
-
-            <label className="check-row">
-              <input
-                type="checkbox"
-                checked={allowManualVerification}
-                onChange={(event) => setAllowManualVerification(event.target.checked)}
-                disabled={useSavedSession}
-              />
-              <span>Open browser for eBay verification</span>
-            </label>
-
-            <label className="check-row">
-              <input
-                type="checkbox"
-                checked={useSavedSession}
-                onChange={(event) => {
-                  setUseSavedSession(event.target.checked);
-                  if (event.target.checked) setAllowManualVerification(true);
-                }}
-              />
-              <span>Use saved eBay login session</span>
-            </label>
-
-            <button className="primary" disabled={loading}>
-              {loading ? <Loader2 className="spin" size={18} /> : <Search size={18} />}
-              <span>{loading ? 'Scraping' : 'Scrape feedback'}</span>
-            </button>
           </form>
 
           <div className="status-list">
@@ -412,6 +389,8 @@ function toCsv(rows) {
 }
 
 function directImportValue(row, column) {
+  // Convert rich scraper rows into Shopify's lean CSV shape at download time.
+  // Internal scraper fields can change without leaking into the exported file.
   const values = {
     title: reviewTitle(row.feedback_text),
     body: row.feedback_text || '',

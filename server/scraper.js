@@ -103,6 +103,8 @@ function browserLaunchMode({ allowManualVerification, useSavedSession }) {
 }
 
 async function ensureSavedSessionLogin(page, warnings) {
+  // The startup path should be fast when cookies are still valid. A DOM/text
+  // check is enough to distinguish signed-in vs signed-out eBay chrome.
   await navigateWithRetry(page, 'https://www.ebay.com/');
   const html = await readFastContent(page);
 
@@ -524,6 +526,8 @@ function extractFeedbackImageUrls($, scope, baseUrl = '') {
   const scoped = scope?.length ? scope : $('body');
   const urls = [];
 
+  // Shopify should receive buyer-uploaded review photos only. eBay product
+  // images use different URL shapes and are filtered out by isFeedbackImageUrl.
   scoped.find('img, source, a[href], [data-src], [data-original], [srcset]').each((_index, element) => {
     const node = $(element);
     const candidates = [
@@ -565,6 +569,7 @@ function normalizeEbayImageUrl(url = '') {
     const parsed = new URL(url);
     parsed.search = '';
     parsed.hash = '';
+    // Some Shopify import validators reject raw "$" even though browsers load it.
     parsed.pathname = parsed.pathname.replaceAll('$', '%24');
     return parsed.toString();
   } catch {

@@ -10,6 +10,8 @@ const dataDir = path.join(rootDir, 'data');
 const dbPath = path.join(dataDir, 'feedback.sqlite');
 let SQL;
 
+// Applies the local scan memory used by incremental mode. Full scans still
+// upsert into SQLite, while incremental scans skip rows whose stable key exists.
 export async function applyFeedbackHistory(rows, { scanMode = 'full' } = {}) {
   const db = await openDatabase();
   const now = new Date().toISOString();
@@ -85,6 +87,8 @@ export function starRatingFor(rating = '') {
 }
 
 export function feedbackKeyFor(row) {
+  // Prefer eBay-provided and product-specific fields, then hash them so a row
+  // can be recognized across future scans without storing a brittle raw string key.
   const stableParts = [
     row.feedback_id,
     row.seller_username,
@@ -151,6 +155,8 @@ function createSchema(db) {
       ON scanned_feedback (source_item_id, matched_item_id);
   `);
 
+  // sql.js stores a plain SQLite file, so lightweight ALTER migrations keep
+  // existing local databases compatible after new scraper fields are added.
   ensureColumn(db, 'source_item_image_url', 'TEXT');
   ensureColumn(db, 'matched_item_image_url', 'TEXT');
   ensureColumn(db, 'feedback_image_urls', 'TEXT');

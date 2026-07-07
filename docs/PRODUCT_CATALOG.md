@@ -1,0 +1,53 @@
+# Product Catalog Matching
+
+Product matching lives in `server/productCatalog.js` and uses:
+
+```text
+data/ebay_titles_skus_in_display_order.csv
+```
+
+The CSV is expected to contain:
+
+```csv
+Title,Custom label (SKU)
+```
+
+## Matching Order
+
+`findSkuForTitle` tries matches in this order:
+
+1. Exact normalized title match.
+2. Contains match, where either title contains the other.
+3. Fuzzy fallback using token overlap and character bigram similarity.
+
+The fuzzy fallback only accepts matches above the configured threshold, so unrelated products remain blank.
+
+## Shopify Handle
+
+Matched SKU values become Shopify product handles by lowercasing and replacing non-alphanumeric characters with hyphens.
+
+Example:
+
+```text
+JW-SCORPION-FREECOM-001
+```
+
+becomes:
+
+```text
+jw-scorpion-freecom-001
+```
+
+## When To Update The Catalog
+
+Update `data/ebay_titles_skus_in_display_order.csv` when:
+
+- a new eBay listing title should map to a Shopify product,
+- a SKU changes,
+- fuzzy matching finds no reasonable result.
+
+Run tests after catalog/matching changes:
+
+```bash
+npm test
+```

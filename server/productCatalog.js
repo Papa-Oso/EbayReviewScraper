@@ -45,6 +45,8 @@ export function findSkuForTitle(catalog, title = '') {
   const normalized = normalizeTitle(title);
   if (!normalized) return '';
 
+  // Keep deterministic matches ahead of fuzzy scoring so obvious catalog hits
+  // never lose to a nearby but incorrect title.
   const exact = catalog.find((record) => record.normalizedTitle === normalized);
   if (exact) return exact.sku;
 
@@ -71,6 +73,8 @@ function bestFuzzyTitleMatch(catalog, normalizedTitle) {
 }
 
 function titleSimilarity(left, right) {
+  // Token overlap catches wording changes; character bigrams soften typos such
+  // as "freecom" vs "freedom" without needing a third-party fuzzy library.
   const tokenScore = diceCoefficient(tokensFor(left), tokensFor(right));
   const bigramScore = diceCoefficient(bigramsFor(left), bigramsFor(right));
   return tokenScore * 0.55 + bigramScore * 0.45;
