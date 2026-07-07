@@ -135,6 +135,7 @@ function createSchema(db) {
       buyer_username TEXT,
       feedback_date TEXT,
       feedback_text TEXT,
+      feedback_image_urls TEXT,
       source_listing_url TEXT,
       matched_item_url TEXT,
       feedback_profile_url TEXT,
@@ -152,6 +153,7 @@ function createSchema(db) {
 
   ensureColumn(db, 'source_item_image_url', 'TEXT');
   ensureColumn(db, 'matched_item_image_url', 'TEXT');
+  ensureColumn(db, 'feedback_image_urls', 'TEXT');
 }
 
 function rowCount(db) {
@@ -197,19 +199,21 @@ function upsertFeedback(db, feedbackKey, row, now) {
         buyer_username,
         feedback_date,
         feedback_text,
+        feedback_image_urls,
         source_listing_url,
         matched_item_url,
         feedback_profile_url,
         match_type,
         first_seen_at,
         last_seen_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(feedback_key) DO UPDATE SET
         rating = excluded.rating,
         star_rating = excluded.star_rating,
         buyer_username = excluded.buyer_username,
         feedback_date = excluded.feedback_date,
         feedback_text = excluded.feedback_text,
+        feedback_image_urls = excluded.feedback_image_urls,
         source_item_image_url = excluded.source_item_image_url,
         matched_item_title = excluded.matched_item_title,
         matched_item_url = excluded.matched_item_url,
@@ -232,6 +236,7 @@ function upsertFeedback(db, feedbackKey, row, now) {
       row.buyer_username || '',
       row.feedback_date || '',
       row.feedback_text || '',
+      row.feedback_image_urls || '',
       row.source_listing_url || '',
       row.matched_item_url || '',
       row.feedback_profile_url || '',

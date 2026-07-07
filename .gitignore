@@ -1,6 +1,7 @@
 node_modules/
 dist/
 *.log
+.env
 data/*.sqlite
 data/*.sqlite-*
 data/browser-profile/

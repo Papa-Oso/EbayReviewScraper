@@ -123,7 +123,7 @@ test('listing page feedback parser ignores rating summaries', () => {
   assert.equal(rows[0].feedback_text, 'Shipped fast and fit perfectly.');
 });
 
-test('listing page feedback rows keep product image urls', () => {
+test('listing page feedback rows do not use product images as review photos', () => {
   const rows = scraperInternals.parseListingPageFeedbackRows(
     `
       <section>
@@ -144,8 +144,38 @@ test('listing page feedback rows keep product image urls', () => {
     }
   );
 
-  assert.equal(rows[0].source_item_image_url, 'https://i.ebayimg.com/images/g/example/s-l1600.jpg');
-  assert.equal(rows[0].matched_item_image_url, 'https://i.ebayimg.com/images/g/example/s-l1600.jpg');
+  assert.equal(rows[0].source_item_image_url, '');
+  assert.equal(rows[0].matched_item_image_url, '');
+  assert.equal(rows[0].feedback_image_urls, '');
+});
+
+test('buyer uploaded feedback photos are exported as feedback image urls', () => {
+  const buyerPhotoUrl = 'https://i.ebayimg.com/00/s/OTAwWDE2MDA=/z/z0IAAeSwS4JqIOGy/$_1.JPG?set_id=8800005007';
+  const cleanBuyerPhotoUrl = 'https://i.ebayimg.com/00/s/OTAwWDE2MDA=/z/z0IAAeSwS4JqIOGy/%24_1.JPG';
+  const rows = scraperInternals.parseListingPageFeedbackRows(
+    `
+      <section>
+        <div class="card__feedback">
+          <span class="card__comment">Good quality product and fits perfectly.</span>
+          <span>Item photo(s) from verified buyer</span>
+          <img src="${buyerPhotoUrl}" alt="Item photo from verified buyer">
+          <a href="/usr/nabna_30">nabna_30 (1)</a>
+          <a href="/itm/327099360080">Scorpion Helmet Adapter Mount for Cardo Freecom 2X / 4X, Spirit, or Spirit HD</a>
+        </div>
+      </section>
+    `,
+    {
+      url: 'https://www.ebay.com/itm/327099360080',
+      itemId: '327099360080',
+      title: 'Scorpion Helmet Adapter Mount for Cardo Freecom 2X / 4X, Spirit, or Spirit HD',
+      imageUrl: 'https://i.ebayimg.com/images/g/product/s-l1600.jpg',
+      sellerUsername: 'joshswidgets',
+      feedbackUrl: 'https://feedback.ebay.com/fdbk/feedback_profile/joshswidgets'
+    }
+  );
+
+  assert.equal(rows[0].feedback_image_urls, cleanBuyerPhotoUrl);
+  assert.equal(rows[0].buyer_username, 'nabna_30');
 });
 
 test('reviewer names drop feedback counts and prices', () => {
@@ -177,13 +207,17 @@ test('listing page feedback buyer names are export ready', () => {
   assert.equal(rows[0].buyer_username, 'jumppilotross');
 });
 
-test('listing image url is read from listing metadata', () => {
-  const $ = cheerio.load('<meta property="og:image" content="https://i.ebayimg.com/images/g/example/s-l1600.jpg">');
+test('feedback image extractor ignores product listing image urls', () => {
+  const buyerPhotoUrl = 'https://i.ebayimg.com/00/s/OTAwWDE2MDA=/z/z0IAAeSwS4JqIOGy/$_1.JPG?set_id=8800005007';
+  const cleanBuyerPhotoUrl = 'https://i.ebayimg.com/00/s/OTAwWDE2MDA=/z/z0IAAeSwS4JqIOGy/%24_1.JPG';
+  const $ = cheerio.load(`
+    <div class="row">
+      <img src="https://i.ebayimg.com/images/g/product/s-l1600.jpg">
+      <img src="${buyerPhotoUrl}">
+    </div>
+  `);
 
-  assert.equal(
-    scraperInternals.extractListingImageUrl($, 'https://www.ebay.com/itm/324744573584'),
-    'https://i.ebayimg.com/images/g/example/s-l1600.jpg'
-  );
+  assert.equal(scraperInternals.extractFeedbackImageUrls($, $('.row'), 'https://www.ebay.com/'), cleanBuyerPhotoUrl);
 });
 
 test('saved sessions use a persistent visible browser', () => {
@@ -201,6 +235,14 @@ test('logged out ebay pages are detected before scraping', () => {
   assert.equal(
     scraperInternals.isLoggedOutEbayPage('<body>Hi! Sign in or register</body>', 'https://www.ebay.com/'),
     true
+  );
+  assert.equal(
+    scraperInternals.isLoggedOutEbayPage('<body><a href="https://signin.ebay.com/ws/eBayISAPI.dll?SignIn">Sign in</a> or register</body>', 'https://www.ebay.com/'),
+    true
+  );
+  assert.equal(
+    scraperInternals.isLoggedOutEbayPage('<body>Hi josh <a href="https://signin.ebay.com/ws/eBayISAPI.dll?SignOut">Sign out</a></body>', 'https://www.ebay.com/'),
+    false
   );
   assert.equal(
     scraperInternals.isLoggedOutEbayPage('<body>My eBay Summary</body>', 'https://www.ebay.com/'),

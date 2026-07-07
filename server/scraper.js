@@ -103,17 +103,13 @@ function browserLaunchMode({ allowManualVerification, useSavedSession }) {
 }
 
 async function ensureSavedSessionLogin(page, warnings) {
-  await gotoBasic(page, 'https://www.ebay.com/');
-  let html = await readStableContent(page);
-  html = await handleEbayErrorPage(page, html, 'https://www.ebay.com/', {
-    allowManualVerification: true,
-    warnings
-  });
+  await navigateWithRetry(page, 'https://www.ebay.com/');
+  const html = await readFastContent(page);
 
   if (!isLoggedOutEbayPage(html, page.url())) return;
 
   warnings.push('Saved eBay session was not logged in, so Chromium opened the eBay sign-in page.');
-  await gotoBasic(page, 'https://signin.ebay.com/ws/eBayISAPI.dll?SignIn');
+  await navigateWithRetry(page, 'https://signin.ebay.com/ws/eBayISAPI.dll?SignIn');
 
   try {
     await page.waitForFunction(
@@ -131,27 +127,45 @@ async function ensureSavedSessionLogin(page, warnings) {
       { timeout: 10 * 60 * 1000 }
     );
     await page.waitForLoadState('domcontentloaded', { timeout: 45000 }).catch(() => {});
-    await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => {});
-    await page.waitForTimeout(1000);
   } catch {
     throw new Error('Timed out waiting for eBay login. Log in inside the Chromium window, then run the scrape again.');
   }
 }
 
-async function gotoBasic(page, url) {
-  await navigateWithRetry(page, url);
-  await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => {});
-  await page.waitForTimeout(1000);
+async function readFastContent(page) {
+  await page.waitForLoadState('domcontentloaded', { timeout: 8000 }).catch(() => {});
+  await page.waitForFunction(
+    () => document.body && document.body.innerText.trim().length > 0,
+    undefined,
+    { timeout: 2500 }
+  ).catch(() => {});
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return await page.content();
+    } catch (error) {
+      if (!String(error.message || '').includes('page is navigating')) throw error;
+      await page.waitForTimeout(250);
+    }
+  }
+
+  return '';
 }
 
 function isLoggedOutEbayPage(html = '', url = '') {
   const $ = cheerio.load(html);
   const text = cleanText($('body').text());
+  const hasSignOutLink = $('a[href*="SignOut"], a[href*="signout"]').length > 0 || /\bSign out\b/i.test(text);
+  const hasSignInLink = $('a[href*="signin.ebay."], a[href*="eBayISAPI.dll?SignIn"]').length > 0;
+  if (hasSignOutLink) return false;
+
   return (
     /signin\.ebay\./i.test(url) ||
     /\bHi!\s*Sign in\b/i.test(text) ||
     /\bSign in or register\b/i.test(text) ||
-    /\bEmail or username\b/i.test(text)
+    /\bEmail or username\b/i.test(text) ||
+    /\bContinue to sign in\b/i.test(text) ||
+    (hasSignInLink && /\bregister\b|\bSign in\b/i.test(text))
   );
 }
 
@@ -239,7 +253,6 @@ async function readListingDetails(page, listingUrl, options) {
     url: listingUrl,
     itemId,
     title,
-    imageUrl: extractListingImageUrl($, listingUrl),
     sellerUsername,
     feedbackUrl: sellerUsername ? feedbackProfileUrl(sellerUsername) : null
   };
@@ -273,33 +286,7 @@ async function scrapeSellerFeedback(page, listing, maxPages, options) {
     options.warnings.push(`No feedback rows were readable for seller ${listing.sellerUsername}.`);
   }
 
-  return enrichRowsWithMatchedItemImages(page, rows, options);
-}
-
-async function enrichRowsWithMatchedItemImages(page, rows, options) {
-  const imageByUrl = new Map();
-  const itemUrls = [...new Set(rows
-    .filter((row) => row.matched_item_url && !row.matched_item_image_url)
-    .map((row) => row.matched_item_url)
-  )].slice(0, 100);
-
-  for (const itemUrl of itemUrls) {
-    try {
-      await goto(page, itemUrl, options);
-      let html = await readStableContent(page);
-      html = await handleEbayErrorPage(page, html, itemUrl, options);
-      const $ = cheerio.load(html);
-      imageByUrl.set(itemUrl, extractListingImageUrl($, itemUrl));
-    } catch {
-      imageByUrl.set(itemUrl, '');
-    }
-  }
-
-  return rows.map((row) => ({
-    ...row,
-    matched_item_image_url: row.matched_item_image_url || imageByUrl.get(row.matched_item_url) || '',
-    source_item_image_url: row.source_item_image_url || imageByUrl.get(row.source_listing_url) || ''
-  }));
+  return rows;
 }
 
 function parseFeedbackRows(html, listing) {
@@ -338,13 +325,14 @@ function parseFeedbackRows(html, listing) {
       source_listing_url: listing.url,
       source_item_id: listing.itemId || '',
       source_item_title: listing.title || '',
-      source_item_image_url: listing.imageUrl || '',
+      source_item_image_url: '',
       seller_username: listing.sellerUsername || '',
       feedback_profile_url: listing.feedbackUrl || '',
       matched_item_id: itemId || '',
       matched_item_title: itemText || '',
       matched_item_url: itemUrl || '',
-      matched_item_image_url: itemId && itemId === listing.itemId ? listing.imageUrl || '' : '',
+      matched_item_image_url: '',
+      feedback_image_urls: extractFeedbackImageUrls($, $(element), itemUrl || listing.url),
       match_type: matchType,
       rating,
       buyer_username: buyer,
@@ -399,13 +387,14 @@ function parseListingPageFeedbackRows(html, listing) {
       source_listing_url: listing.url,
       source_item_id: listing.itemId || '',
       source_item_title: listing.title || '',
-      source_item_image_url: listing.imageUrl || '',
+      source_item_image_url: '',
       seller_username: listing.sellerUsername || '',
       feedback_profile_url: listing.feedbackUrl || '',
       matched_item_id: itemId,
       matched_item_title: listing.title || '',
       matched_item_url: listing.url,
-      matched_item_image_url: listing.imageUrl || '',
+      matched_item_image_url: '',
+      feedback_image_urls: extractFeedbackImageUrls($, container.length ? container : $(element), listing.url),
       match_type: 'listing-page',
       rating: normalizeRating(rowText),
       buyer_username: normalizeFeedbackFrom(container.find('a[href*="/usr/"]').last().text()),
@@ -453,13 +442,14 @@ function parseFeedbackTableRows($, listing) {
       source_listing_url: listing.url,
       source_item_id: listing.itemId || '',
       source_item_title: listing.title || '',
-      source_item_image_url: listing.imageUrl || '',
+      source_item_image_url: '',
       seller_username: listing.sellerUsername || '',
       feedback_profile_url: listing.feedbackUrl || '',
       matched_item_id: itemId || '',
       matched_item_title: itemText || '',
       matched_item_url: itemUrl || '',
-      matched_item_image_url: itemId && itemId === listing.itemId ? listing.imageUrl || '' : '',
+      matched_item_image_url: '',
+      feedback_image_urls: extractFeedbackImageUrls($, row, itemUrl || listing.url),
       match_type: matchType,
       rating,
       buyer_username: normalizeFeedbackFrom(fromText),
@@ -489,13 +479,14 @@ function parseFallbackFeedback(html, listing) {
     source_listing_url: listing.url,
     source_item_id: listing.itemId || '',
     source_item_title: listing.title || '',
-    source_item_image_url: listing.imageUrl || '',
+    source_item_image_url: '',
     seller_username: listing.sellerUsername || '',
     feedback_profile_url: listing.feedbackUrl || '',
     matched_item_id: extractItemId(text) || '',
     matched_item_title: '',
     matched_item_url: '',
     matched_item_image_url: '',
+    feedback_image_urls: '',
     match_type: inferMatchType({ listing, rowText: text }),
     rating: inferRating(text),
     buyer_username: '',
@@ -529,17 +520,56 @@ function extractSellerUsername($, html) {
   return textMatch ? decodeURIComponent(textMatch[1]) : '';
 }
 
-function extractListingImageUrl($, baseUrl = '') {
-  const candidates = [
-    $('meta[property="og:image"]').attr('content'),
-    $('meta[name="twitter:image"]').attr('content'),
-    $('meta[property="twitter:image"]').attr('content'),
-    $('img#icImg').attr('src'),
-    $('img[data-testid*="ux-image"]').attr('src'),
-    $('img[src*="i.ebayimg.com"]').first().attr('src')
-  ];
+function extractFeedbackImageUrls($, scope, baseUrl = '') {
+  const scoped = scope?.length ? scope : $('body');
+  const urls = [];
 
-  return candidates.map((candidate) => absoluteUrl(candidate, baseUrl)).find(Boolean) || '';
+  scoped.find('img, source, a[href], [data-src], [data-original], [srcset]').each((_index, element) => {
+    const node = $(element);
+    const candidates = [
+      node.attr('src'),
+      node.attr('data-src'),
+      node.attr('data-original'),
+      node.attr('href'),
+      ...srcsetUrls(node.attr('srcset'))
+    ];
+
+    for (const candidate of candidates) {
+      const url = absoluteUrl(candidate, baseUrl);
+      if (isFeedbackImageUrl(url)) urls.push(normalizeEbayImageUrl(url));
+    }
+  });
+
+  return [...new Set(urls)].join(',');
+}
+
+function srcsetUrls(value = '') {
+  return String(value)
+    .split(',')
+    .map((candidate) => candidate.trim().split(/\s+/)[0])
+    .filter(Boolean);
+}
+
+function isFeedbackImageUrl(url = '') {
+  if (!url) return false;
+  try {
+    const parsed = new URL(url);
+    return /(^|\.)ebayimg\.com$/i.test(parsed.hostname) && /\/\$_\d+\.(?:jpe?g|png|webp)/i.test(parsed.pathname);
+  } catch {
+    return false;
+  }
+}
+
+function normalizeEbayImageUrl(url = '') {
+  try {
+    const parsed = new URL(url);
+    parsed.search = '';
+    parsed.hash = '';
+    parsed.pathname = parsed.pathname.replaceAll('$', '%24');
+    return parsed.toString();
+  } catch {
+    return String(url).replace(/[?#].*$/, '').replaceAll('$', '%24');
+  }
 }
 
 function extractListingUrls(html, baseUrl) {
@@ -957,7 +987,7 @@ export const scraperInternals = {
   feedbackPageUrl,
   extractFeedbackTotalPages,
   parseListingPageFeedbackRows,
-  extractListingImageUrl,
+  extractFeedbackImageUrls,
   normalizeFeedbackFrom,
   browserLaunchMode,
   isLoggedOutEbayPage,

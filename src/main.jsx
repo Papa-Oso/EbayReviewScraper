@@ -30,8 +30,10 @@ const columns = [
   'picture_urls'
 ];
 
+const defaultEbayUrl = import.meta.env.VITE_DEFAULT_EBAY_URL || '';
+
 function App() {
-  const [url, setUrl] = useState('https://www.ebay.com/usr/joshswidgets');
+  const [url, setUrl] = useState(defaultEbayUrl);
   const [mode, setMode] = useState('auto');
   const [maxItems, setMaxItems] = useState(25);
   const [maxPages, setMaxPages] = useState(100);
@@ -420,7 +422,7 @@ function directImportValue(row, column) {
     product_id: '',
     product_handle: row.product_handle || row.product_sku || '',
     reply: '',
-    picture_urls: row.matched_item_image_url || row.source_item_image_url || ''
+    picture_urls: row.feedback_image_urls || ''
   };
 
   return values[column];
