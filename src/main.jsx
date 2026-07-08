@@ -3,13 +3,11 @@ import { createRoot } from 'react-dom/client';
 import {
   AlertCircle,
   CheckCircle2,
-  ChevronRight,
   Download,
   ExternalLink,
   FileSpreadsheet,
   Loader2,
   Music2,
-  Settings2,
   RotateCcw,
   Search,
   Volume2,
@@ -34,21 +32,17 @@ const columns = [
 
 const defaultSettings = {
   defaultEbayUrl: import.meta.env.VITE_DEFAULT_EBAY_URL || '',
-  theme: 'dark',
   muted: true,
-  startOnStartup: false
 };
 const SETTINGS_KEY = 'ebay-review-scraper-settings';
 
 function App() {
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [settings, setSettings] = useState(() => readSettings());
   const [url, setUrl] = useState(() => readSettings().defaultEbayUrl);
   const [maxItems, setMaxItems] = useState(25);
   const [maxPages, setMaxPages] = useState(100);
   const [scanMode, setScanMode] = useState('incremental');
   const [allowManualVerification, setAllowManualVerification] = useState(true);
-  const [useSavedSession, setUseSavedSession] = useState(true);
   const [loading, setLoading] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(true);
   const [resetLoading, setResetLoading] = useState(false);
@@ -56,7 +50,7 @@ function App() {
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
   const [log, setLog] = useState([]);
-  const chiptuneRef = useRef(null);
+  const musicRef = useRef(null);
 
   const updateSetting = (key, value) => {
     setSettings((current) => ({ ...current, [key]: value }));
@@ -72,9 +66,9 @@ function App() {
   }, [settings]);
 
   useEffect(() => {
-    document.documentElement.dataset.theme = settings.theme;
-    document.documentElement.style.colorScheme = settings.theme;
-  }, [settings.theme]);
+    document.documentElement.dataset.theme = 'dark';
+    document.documentElement.style.colorScheme = 'dark';
+  }, []);
 
   useEffect(() => {
     loadSavedReviews();
@@ -87,10 +81,7 @@ function App() {
   const latestCount = result?.latestRows?.length ?? 0;
 
   useEffect(() => {
-    if (muted) {
-      chiptuneRef.current?.stop();
-      chiptuneRef.current = null;
-    }
+    syncMusicState(muted);
   }, [muted]);
 
   useEffect(() => {
@@ -120,31 +111,17 @@ function App() {
 
   async function runScrape(event) {
     event.preventDefault();
-    if (!muted && !chiptuneRef.current) {
-      chiptuneRef.current = createChiptuneLoop();
-      chiptuneRef.current.start();
-    }
+    syncMusicState(muted);
     setLoading(true);
     setError('');
     setResult(null);
-    setLog([
-      useSavedSession
-        ? 'Starting saved eBay browser session'
-        : allowManualVerification
-          ? 'Starting visible browser session'
-          : 'Starting background browser session',
-      useSavedSession
-        ? 'Checking eBay login before scraping'
-        : allowManualVerification
-          ? 'Solve any eBay verification in Chromium'
-          : 'Reading eBay page structure'
-    ]);
+    setLog(['Starting saved eBay browser session', 'Checking eBay login before scraping']);
 
     try {
       const response = await fetch('/api/scrape', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url, mode: 'auto', maxItems, maxPages, scanMode, allowManualVerification, useSavedSession })
+        body: JSON.stringify({ url, mode: 'auto', maxItems, maxPages, scanMode, allowManualVerification, useSavedSession: true })
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || 'Scrape failed.');
@@ -203,26 +180,27 @@ function App() {
 
   function toggleMute() {
     setMuted((currentMuted) => {
-      if (!currentMuted) {
-        chiptuneRef.current?.stop();
-        chiptuneRef.current = null;
-        setSettings((current) => ({ ...current, muted: true }));
-        return true;
-      }
-
-      chiptuneRef.current = createChiptuneLoop();
-      chiptuneRef.current.start();
-      setSettings((current) => ({ ...current, muted: false }));
-      return false;
+      const nextMuted = !currentMuted;
+      setSettings((current) => ({ ...current, muted: nextMuted }));
+      return nextMuted;
     });
   }
 
-  function resetSettings() {
-    chiptuneRef.current?.stop();
-    chiptuneRef.current = null;
-    setSettings(defaultSettings);
-    setMuted(defaultSettings.muted);
-    setUrl(defaultSettings.defaultEbayUrl);
+  function syncMusicState(isMuted) {
+    if (isMuted) {
+      musicRef.current?.stop();
+      musicRef.current = null;
+      return;
+    }
+
+    if (!musicRef.current) {
+      musicRef.current = createMusicLoop();
+      musicRef.current.start().catch(() => {
+        musicRef.current?.stop();
+        musicRef.current = null;
+        setMuted(true);
+      });
+    }
   }
 
   function downloadCsv(rows, scope) {
@@ -253,19 +231,10 @@ function App() {
                 type="button"
                 className={`sound-toggle ${muted ? 'muted' : ''}`}
                 onClick={toggleMute}
-                title={muted ? 'Unmute chiptune' : 'Mute chiptune'}
-                aria-label={muted ? 'Unmute chiptune' : 'Mute chiptune'}
+                title={muted ? 'Unmute music' : 'Mute music'}
+                aria-label={muted ? 'Unmute music' : 'Mute music'}
               >
                 {muted ? <VolumeX size={18} aria-hidden="true" /> : <Volume2 size={18} aria-hidden="true" />}
-              </button>
-              <button
-                type="button"
-                className={`settings-toggle ${settingsOpen ? 'active' : ''}`}
-                onClick={() => setSettingsOpen((current) => !current)}
-                title="Open settings"
-                aria-label="Open settings"
-              >
-                {settingsOpen ? <ChevronRight size={18} aria-hidden="true" /> : <Settings2 size={18} aria-hidden="true" />}
               </button>
             </div>
           </div>
@@ -333,28 +302,6 @@ function App() {
                 </div>
               </div>
 
-              <div className="control-group">
-                <span className="group-label">Saved eBay session</span>
-                <div className="segmented two-part" aria-label="Saved eBay session">
-                  {[
-                    [true, 'On'],
-                    [false, 'Off']
-                  ].map(([value, label]) => (
-                    <button
-                      type="button"
-                      key={label}
-                      className={useSavedSession === value ? 'active' : ''}
-                      onClick={() => {
-                        setUseSavedSession(value);
-                        if (value) setAllowManualVerification(true);
-                      }}
-                    >
-                      <span>{label}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
               <button
                 type="button"
                 className="secondary-danger"
@@ -371,7 +318,7 @@ function App() {
           <div className="status-list">
             <div className={`status-row music ${muted ? 'muted' : ''}`}>
               <Music2 size={15} aria-hidden="true" />
-              <span>{muted ? 'Chiptune muted' : 'Chiptune armed'}</span>
+              <span>{muted ? 'Music muted' : 'Music armed'}</span>
             </div>
             {log.map((entry) => (
               <div className="status-row" key={entry}>
@@ -468,92 +415,6 @@ function App() {
         </section>
       </section>
 
-      {settingsOpen && <button type="button" className="settings-backdrop" onClick={() => setSettingsOpen(false)} aria-label="Close settings" />}
-      <aside
-        className={`settings-drawer ${settingsOpen ? 'open' : ''}`}
-        aria-hidden={!settingsOpen}
-        inert={!settingsOpen}
-        aria-label="Settings"
-      >
-        <div className="settings-header">
-          <h2>Settings</h2>
-          <button type="button" className="settings-close" onClick={() => setSettingsOpen(false)} aria-label="Close settings">
-            <ChevronRight size={18} aria-hidden="true" />
-          </button>
-        </div>
-
-        <div className="settings-grid">
-          <div className="settings-note">
-            <span>Default eBay URL</span>
-            <strong>{settings.defaultEbayUrl || 'Not set'}</strong>
-          </div>
-
-          <div className="control-group">
-            <span className="group-label">Theme</span>
-            <div className="segmented two-part" aria-label="Theme">
-              {[
-                ['dark', 'Dark'],
-                ['light', 'Light']
-              ].map(([value, label]) => (
-                <button
-                  type="button"
-                  key={value}
-                  className={settings.theme === value ? 'active' : ''}
-                  onClick={() => updateSetting('theme', value)}
-                >
-                  <span>{label}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="control-group">
-            <span className="group-label">Chiptune on startup</span>
-            <div className="segmented two-part" aria-label="Chiptune on startup">
-              {[
-                [true, 'Muted'],
-                [false, 'Armed']
-              ].map(([value, label]) => (
-                <button
-                  type="button"
-                  key={label}
-                  className={settings.muted === value ? 'active' : ''}
-                  onClick={() => {
-                    setMuted(value);
-                    updateSetting('muted', value);
-                  }}
-                >
-                  <span>{label}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="control-group">
-            <span className="group-label">System startup</span>
-            <div className="segmented two-part" aria-label="System startup">
-              {[
-                [true, 'On'],
-                [false, 'Off']
-              ].map(([value, label]) => (
-                <button
-                  type="button"
-                  key={label}
-                  className={settings.startOnStartup === value ? 'active' : ''}
-                  onClick={() => updateSetting('startOnStartup', value)}
-                >
-                  <span>{label}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        <button type="button" className="secondary reset-settings" onClick={resetSettings}>
-          <RotateCcw size={18} aria-hidden="true" />
-          <span>Reset settings</span>
-        </button>
-      </aside>
     </main>
   );
 }
@@ -564,10 +425,8 @@ function readSettings() {
     if (!saved || typeof saved !== 'object') return defaultSettings;
     return {
       ...defaultSettings,
-      ...saved,
-      theme: saved.theme === 'light' ? 'light' : 'dark',
-      muted: Boolean(saved.muted),
-      startOnStartup: Boolean(saved.startOnStartup ?? saved.openSettingsOnStartup)
+      defaultEbayUrl: typeof saved.defaultEbayUrl === 'string' ? saved.defaultEbayUrl : defaultSettings.defaultEbayUrl,
+      muted: Boolean(saved.muted)
     };
   } catch {
     return defaultSettings;
@@ -667,63 +526,20 @@ function slugForFilename(value = '') {
   return slug || 'export';
 }
 
-function createChiptuneLoop() {
-  const AudioContext = window.AudioContext || window.webkitAudioContext;
-  if (!AudioContext) {
-    return { start() {}, stop() {} };
-  }
-
-  const context = new AudioContext();
-  const output = context.createGain();
-  const delay = context.createDelay();
-  const feedback = context.createGain();
-  let timer = null;
-  let step = 0;
-
-  output.gain.value = 0.055;
-  delay.delayTime.value = 0.135;
-  feedback.gain.value = 0.23;
-  delay.connect(feedback);
-  feedback.connect(delay);
-  output.connect(delay);
-  delay.connect(context.destination);
-  output.connect(context.destination);
-
-  const melody = [659, 784, 988, 784, 523, 659, 784, 1046, 988, 784, 659, 587, 659, 784, 880, 784];
-  const bass = [131, 131, 196, 196, 165, 165, 220, 247];
-  const beatMs = 145;
-
-  function blip(frequency, duration, type, gainValue) {
-    const oscillator = context.createOscillator();
-    const gain = context.createGain();
-    oscillator.type = type;
-    oscillator.frequency.setValueAtTime(frequency, context.currentTime);
-    gain.gain.setValueAtTime(0.0001, context.currentTime);
-    gain.gain.exponentialRampToValueAtTime(gainValue, context.currentTime + 0.01);
-    gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + duration);
-    oscillator.connect(gain);
-    gain.connect(output);
-    oscillator.start();
-    oscillator.stop(context.currentTime + duration + 0.02);
-  }
-
-  function tick() {
-    blip(melody[step % melody.length], 0.07, 'square', 0.75);
-    if (step % 2 === 0) blip(bass[(step / 2) % bass.length], 0.11, 'triangle', 0.45);
-    if (step % 4 === 3) blip(1760, 0.025, 'square', 0.25);
-    step += 1;
-  }
+function createMusicLoop() {
+  const audio = new Audio('/shred-loop.mp3');
+  audio.loop = true;
+  audio.preload = 'auto';
+  audio.volume = 0.42;
 
   return {
     async start() {
-      await context.resume();
-      tick();
-      timer = window.setInterval(tick, beatMs);
+      audio.currentTime = 0;
+      await audio.play();
     },
     stop() {
-      if (timer) window.clearInterval(timer);
-      output.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.03);
-      window.setTimeout(() => context.close(), 80);
+      audio.pause();
+      audio.currentTime = 0;
     }
   };
 }

@@ -52,7 +52,6 @@ app.post('/api/scrape', async (req, res) => {
     maxItems = 25,
     maxPages = 8,
     allowManualVerification = true,
-    useSavedSession = false,
     scanMode = 'full'
   } = req.body ?? {};
 
@@ -68,7 +67,7 @@ app.post('/api/scrape', async (req, res) => {
       maxItems: clampNumber(maxItems, 1, 250, 25),
       maxPages: clampNumber(maxPages, 1, 100, 8),
       allowManualVerification: Boolean(allowManualVerification),
-      useSavedSession: Boolean(useSavedSession)
+      useSavedSession: true
     });
 
     // Scraped rows are deliberately processed in this order:

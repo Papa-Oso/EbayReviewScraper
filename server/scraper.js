@@ -16,7 +16,7 @@ export async function scrapeEbayFeedback({
   maxItems = 25,
   maxPages = 8,
   allowManualVerification = true,
-  useSavedSession = false
+  useSavedSession = true
 }) {
   const { browser, context, page } = await createBrowserSession({ allowManualVerification, useSavedSession });
   const warnings = [];
